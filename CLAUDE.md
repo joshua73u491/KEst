@@ -1,5 +1,7 @@
 # Regeln für dieses Repository
 
+Zuerst `docs/HANDOFF.md` lesen: Produkt, Steuerregeln, offene Fragen und Stand.
+
 - **Sprache:** Oberfläche, Fehlermeldungen, Doku und Testnamen auf Deutsch. Code-Bezeichner auf Englisch.
 - **Geld nur mit `decimal.js`** über `src/decimal.ts` (`dec`, `D`). Nie `number` für Beträge, Kurse oder Stückzahlen. Gerundet wird erst im Bericht.
 - **Testgetrieben:** Erst der Test (Rot), dann der Code (Grün). Jede Steuerregel hat einen von Hand nachgerechneten Testfall mit Quellenangabe im Kommentar, wo es eine gibt.
