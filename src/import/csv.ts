@@ -1,14 +1,32 @@
-/** Minimaler CSV-Leser nach RFC 4180: Komma als Trenner, Felder in Anführungszeichen, "" als Escape. */
+/**
+ * Minimaler CSV-Leser nach RFC 4180: Komma als Trenner, Felder in Anführungszeichen, "" als Escape.
+ * Ein UTF-8-BOM am Dateianfang wird entfernt (Node liest ihn sonst als Teil des ersten Spaltennamens).
+ */
 export function parseCsv(text: string): Array<Record<string, string>> {
-  const rows = parseRows(text);
+  return parseCsvTable(text).rows;
+}
+
+/**
+ * Wie `parseCsv`, liefert aber auch die Kopfzeile (leer, wenn die Datei leer ist).
+ * `checkHeader` läuft vor der Prüfung der Spaltenzahl, damit eine falsche Datei eine passende Meldung bekommt.
+ */
+export function parseCsvTable(
+  text: string,
+  checkHeader?: (header: string[]) => void,
+): { header: string[]; rows: Array<Record<string, string>> } {
+  const rows = parseRows(text.startsWith("\uFEFF") ? text.slice(1) : text);
   const [header, ...body] = rows;
-  if (!header) return [];
-  return body.map((cells, i) => {
-    if (cells.length !== header.length) {
-      throw new Error(`CSV Zeile ${i + 2}: ${cells.length} statt ${header.length} Spalten`);
-    }
-    return Object.fromEntries(header.map((name, j) => [name, cells[j] ?? ""]));
-  });
+  checkHeader?.(header ?? []);
+  if (!header) return { header: [], rows: [] };
+  return {
+    header,
+    rows: body.map((cells, i) => {
+      if (cells.length !== header.length) {
+        throw new Error(`CSV Zeile ${i + 2}: ${cells.length} statt ${header.length} Spalten`);
+      }
+      return Object.fromEntries(header.map((name, j) => [name, cells[j] ?? ""]));
+    }),
+  };
 }
 
 function parseRows(text: string): string[][] {

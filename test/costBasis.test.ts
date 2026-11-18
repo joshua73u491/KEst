@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { Positions } from "../src/costBasis.js";
+import { InsufficientPositionError, Positions } from "../src/costBasis.js";
 import { toEur } from "../src/fx.js";
 
 const ISIN = "AT0000000001";
@@ -59,6 +59,22 @@ describe("Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG
     expect(() =>
       p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-03", side: "sell", quantity: "2", amountEur: "250" }),
     ).toThrow(/Bestand/);
+  });
+
+  test("fehlender Bestand hat eine eigene Fehlerart und lässt die Position unverändert", () => {
+    const p = new Positions();
+    p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-02", side: "buy", quantity: "1", amountEur: "100" });
+    let error: unknown;
+    try {
+      p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-03", side: "transfer_out", quantity: "2", amountEur: "0" });
+    } catch (e) {
+      error = e;
+    }
+    expect(InsufficientPositionError).toBeTypeOf("function");
+    expect(error).toBeInstanceOf(InsufficientPositionError);
+    expect((error as InsufficientPositionError).available.toString()).toBe("1");
+    expect(p.get(ISIN, DEPOT).quantity.toString()).toBe("1");
+    expect(p.get(ISIN, DEPOT).costEur.toString()).toBe("100");
   });
 
   test("Testfall 2: US-Aktie – Gewinn in USD, aber Verlust in EUR durch den Wechselkurs", () => {

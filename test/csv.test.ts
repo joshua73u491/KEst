@@ -20,4 +20,8 @@ describe("parseCsv", () => {
   test("Zeile mit falscher Spaltenzahl wird abgelehnt", () => {
     expect(() => parseCsv('"a","b"\n"1"\n')).toThrow(/Zeile 2/);
   });
+
+  test("UTF-8-BOM am Dateianfang gehört nicht zum ersten Spaltennamen", () => {
+    expect(parseCsv('\uFEFF"a","b"\n"1","2"\n')).toEqual([{ a: "1", b: "2" }]);
+  });
 });
