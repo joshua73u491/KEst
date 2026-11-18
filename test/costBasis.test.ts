@@ -45,6 +45,14 @@ describe("Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG
     expect(p.get(ISIN, "IBKR").avgPriceEur.toString()).toBe("200");
   });
 
+  test("Übertrag aus dem Depot nimmt anteilige Anschaffungskosten mit, ohne Gewinn", () => {
+    const p = new Positions();
+    p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-02", side: "buy", quantity: "4", amountEur: "400" });
+    expect(p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-03", side: "transfer_out", quantity: "1", amountEur: "0" })).toBeNull();
+    expect(p.get(ISIN, DEPOT).quantity.toString()).toBe("3");
+    expect(p.get(ISIN, DEPOT).costEur.toString()).toBe("300");
+  });
+
   test("Verkauf von mehr Stück als im Bestand wird abgelehnt", () => {
     const p = new Positions();
     p.apply({ isin: ISIN, depot: DEPOT, date: "2025-01-02", side: "buy", quantity: "1", amountEur: "100" });

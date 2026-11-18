@@ -38,6 +38,21 @@ describe("27,5 %-Topf: Kursgewinne, Dividenden, Quellensteuer (ausländisches De
     expect(r.taxEur.toString()).toBe("0");
   });
 
+  test("verbriefte Derivate (KZ 995/896) und Krypto (KZ 174/176) laufen im selben Topf", () => {
+    const r = computeBasket275({
+      realizedGainsEur: ["100"],
+      derivativeGainsEur: ["50", "-20"],
+      cryptoGainsEur: ["30", "-10"],
+      dividends: [],
+    });
+    expect(r.kz995.toString()).toBe("50");
+    expect(r.kz896.toString()).toBe("20");
+    expect(r.kz174.toString()).toBe("30");
+    expect(r.kz176.toString()).toBe("10");
+    expect(r.taxableBaseEur.toString()).toBe("150");
+    expect(r.taxEur.toString()).toBe("41.25");
+  });
+
   test("Verlustüberhang: keine Steuer, kein Vortrag ins nächste Jahr", () => {
     const r = computeBasket275({ realizedGainsEur: ["-500"], dividends: [usDividend("100", "15")] });
     expect(r.taxableBaseEur.toString()).toBe("0");

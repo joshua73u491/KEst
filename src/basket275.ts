@@ -11,7 +11,11 @@ export interface Dividend {
 }
 
 export interface Basket275Input {
+  /** Aktien, ETFs, Anleihen, Fonds */
   realizedGainsEur: DecInput[];
+  /** verbriefte Derivate: Optionsscheine, Zertifikate, Turbos */
+  derivativeGainsEur?: DecInput[];
+  cryptoGainsEur?: DecInput[];
   dividends: Dividend[];
 }
 
@@ -20,6 +24,14 @@ export interface Basket275Result {
   kz994: Dec;
   /** Verluste aus realisierten Wertsteigerungen, als positiver Betrag */
   kz892: Dec;
+  /** Überschüsse aus verbrieften Derivaten */
+  kz995: Dec;
+  /** Verluste aus Derivaten, als positiver Betrag */
+  kz896: Dec;
+  /** Überschüsse aus realisierten Wertsteigerungen von Kryptowährungen */
+  kz174: Dec;
+  /** Verluste aus Kryptowährungen, als positiver Betrag */
+  kz176: Dec;
   /** Dividenden und Wertpapierzinsen brutto */
   kz863: Dec;
   /** anrechenbare ausländische Quellensteuer */
@@ -30,20 +42,26 @@ export interface Basket275Result {
   unusedLossEur: Dec;
 }
 
+const split = (values: DecInput[] = []): [gains: Dec, losses: Dec] => {
+  const all = values.map(dec);
+  return [D.sum(ZERO, ...all.filter((v) => v.gt(0))), D.sum(ZERO, ...all.filter((v) => v.lt(0))).abs()];
+};
+
 /**
  * Jahresergebnis des 27,5 %-Topfs für ein ausländisches Depot.
+ * Kursgewinne, verbriefte Derivate, Krypto und Dividenden werden im selben Kalenderjahr gegeneinander verrechnet.
  *
- * Annahme (offene Frage an den Steuerberater, siehe Produktplan): Gleichen Kursverluste
- * Dividenden aus, wird die anrechenbare Quellensteuer auf die österreichische Steuer
- * gedeckelt, die auf die verbleibenden Dividenden entfällt.
+ * Annahme (offene Frage an den Steuerberater, siehe README): Gleichen Verluste Dividenden aus,
+ * wird die anrechenbare Quellensteuer auf die österreichische Steuer gedeckelt,
+ * die auf die verbleibenden Dividenden entfällt.
  */
 export function computeBasket275(input: Basket275Input): Basket275Result {
-  const gains = input.realizedGainsEur.map(dec);
-  const kz994 = D.sum(ZERO, ...gains.filter((g) => g.gt(0)));
-  const kz892 = D.sum(ZERO, ...gains.filter((g) => g.lt(0))).abs();
+  const [kz994, kz892] = split(input.realizedGainsEur);
+  const [kz995, kz896] = split(input.derivativeGainsEur);
+  const [kz174, kz176] = split(input.cryptoGainsEur);
   const kz863 = D.sum(ZERO, ...input.dividends.map((d) => dec(d.grossEur)));
 
-  const netGains = kz994.minus(kz892);
+  const netGains = D.sum(kz994, kz995, kz174).minus(D.sum(kz892, kz896, kz176));
   const total = netGains.plus(kz863);
   const taxableBaseEur = D.max(ZERO, total);
   const unusedLossEur = D.max(ZERO, total.negated());
@@ -57,5 +75,5 @@ export function computeBasket275(input: Basket275Input): Basket275Result {
 
   const taxEur = D.max(ZERO, taxableBaseEur.times(SPECIAL_RATE).minus(kz998));
 
-  return { kz994, kz892, kz863, kz998, taxableBaseEur, taxEur, unusedLossEur };
+  return { kz994, kz892, kz995, kz896, kz174, kz176, kz863, kz998, taxableBaseEur, taxEur, unusedLossEur };
 }

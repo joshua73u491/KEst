@@ -5,7 +5,8 @@ export interface Trade {
   isin: string;
   depot: string;
   date: string;
-  side: "buy" | "sell";
+  /** transfer_out = Übertrag aus dem Depot (z. B. Krypto ins eigene Wallet): kein Verkauf, kein Gewinn */
+  side: "buy" | "sell" | "transfer_out";
   quantity: DecInput;
   amountEur: DecInput;
 }
@@ -47,13 +48,14 @@ export class Positions {
 
     if (quantity.gt(pos.quantity)) {
       throw new Error(
-        `Verkauf von ${quantity.toString()} Stück ${trade.isin} am ${trade.date} übersteigt den Bestand von ${pos.quantity.toString()}`,
+        `${trade.side === "sell" ? "Verkauf" : "Übertrag"} von ${quantity.toString()} Stück ${trade.isin} am ${trade.date} übersteigt den Bestand von ${pos.quantity.toString()}`,
       );
     }
     const costSold = quantity.eq(pos.quantity) ? pos.costEur : pos.costEur.div(pos.quantity).times(quantity);
     const rest = pos.quantity.minus(quantity);
     this.book.set(key, { quantity: rest, costEur: rest.isZero() ? ZERO : pos.costEur.minus(costSold) });
 
+    if (trade.side === "transfer_out") return null;
     return {
       isin: trade.isin,
       depot: trade.depot,
@@ -63,6 +65,16 @@ export class Positions {
       costEur: costSold,
       gainEur: amount.minus(costSold),
     };
+  }
+
+  /** Alle Positionen mit Bestand, z. B. für die Übersicht offener Positionen. */
+  open(): Array<Position & { isin: string; depot: string }> {
+    return [...this.book.entries()]
+      .filter(([, pos]) => !pos.quantity.isZero())
+      .map(([key, pos]) => {
+        const [depot = "", isin = ""] = key.split("|");
+        return { isin, depot, quantity: pos.quantity, costEur: pos.costEur, avgPriceEur: pos.costEur.div(pos.quantity) };
+      });
   }
 
   get(isin: string, depot: string): Position {
