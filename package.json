@@ -1,0 +1,21 @@
+{
+  "name": "kest-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "KESt-Rücklage-App: laufende KESt-Berechnung und Steuer-Rücklage für nicht steuereinfache Broker (Österreich)",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "decimal.js": "^10.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  }
+}

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+# Echte Broker-Exporte nie committen
+data/private/
+*.private.*
