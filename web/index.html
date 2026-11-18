@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KESt-Rücklage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* VOICE work: a money tool, calm and exact like a good bank statement
+   IDEA a tax reserve envelope: the one number you must not spend, everything else explains it
+   PICTURE the reserve figure on a full green band, then each sale as a bar left (loss) or right (gain)
+   COLOUR white ground, ink #0b0b10, signal green #00a862 band, coral for losses; night #07130d
+   TYPE Space Grotesk 500 for figures and titles + Inter for text
+   LAYOUT laptop: title + import row, green band with figure left and figures right, bars beside the E1kv table; phone: stacked */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#07130d);--ink:light-dark(#0b0b10,#e9f6ef);--soft:light-dark(#5b6168,#9fb7aa);--line:light-dark(#e3e7e5,#1d3a2c);--mist:light-dark(#eafaf2,#0d2419);--green:#00a862;--band:light-dark(#00a862,#0b8f55);--on:#ffffff;--loss:light-dark(#e2543a,#ff7b62);--gain:light-dark(#00a862,#2fd08a);--panel:light-dark(#ffffff,#0b1d14)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 Inter,system-ui,sans-serif;overflow-x:clip}
+.band{padding-block:clamp(24px,3.5vw,48px);padding-inline:max(5vw,16px)}
+.wrap{max-width:1240px;margin-inline:auto}
+h1,h2,.big,dd{font-family:"Space Grotesk",Inter,sans-serif;font-weight:500;letter-spacing:-.02em}
+h1{font-size:clamp(30px,4vw,44px);line-height:1.05;margin:6px 0 14px;text-wrap:balance;max-width:20ch}
+h2{font-size:22px;line-height:1.2;margin:0 0 4px}
+.brand{font-weight:600;color:var(--green)}
+.lead{color:var(--soft);margin:0 0 18px;max-width:62ch}
+.import{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+#drop{flex:1 1 380px;border:1.5px dashed var(--line);border-radius:12px;padding:14px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:var(--mist);transition:border-color .2s}
+#drop.over{border-color:var(--green)}
+.btn{font:600 15px/1 Inter,sans-serif;min-height:44px;padding:0 18px;border-radius:10px;border:0;background:var(--ink);color:var(--bg);cursor:pointer;display:inline-flex;align-items:center}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--green);outline-offset:2px}
+#file{position:absolute;width:1px;height:1px;opacity:0}
+#source{font-size:14px;color:var(--soft)}
+.priv{font-size:13px;color:var(--soft);margin:10px 0 0}
+#error{margin-top:12px;padding:10px 14px;border-radius:10px;background:color-mix(in srgb,var(--loss) 14%,transparent);color:var(--ink)}
+.hero{background:var(--band);color:var(--on)}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:clamp(20px,4vw,56px);align-items:end}
+.hero label,.hero .note{color:color-mix(in srgb,var(--on) 86%,transparent)}
+.big{font-size:clamp(52px,8vw,96px);line-height:1;margin:6px 0 10px;white-space:nowrap}
+.note{margin:0;max-width:44ch}
+dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;margin:0;background:color-mix(in srgb,var(--on) 30%,transparent);border-radius:12px;overflow:hidden}
+dl div{background:var(--band);padding:14px 16px}
+dt{font-size:13px;color:color-mix(in srgb,var(--on) 86%,transparent)}
+dd{margin:2px 0 0;font-size:26px;white-space:nowrap}
+.ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:18px}
+.ctrl label{font-size:14px;display:flex;gap:8px;align-items:center}
+select{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:0;padding:0 12px;background:var(--on);color:#0b0b10}
+input[type=range]{accent-color:#0b0b10;width:150px;height:44px}
+.grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(24px,4vw,56px)}
+.sub{color:var(--soft);font-size:14px;margin:0 0 14px}
+#bars{list-style:none;margin:0;padding:0}
+#bars li{display:grid;grid-template-columns:minmax(0,11em) minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}
+.who{display:flex;flex-direction:column;line-height:1.25}
+.who b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.who small{color:var(--soft);font-size:13px}
+.track{display:grid;grid-template-columns:1fr 1fr;height:22px}
+.half{display:flex;align-items:center}
+.half.l{justify-content:flex-end;border-right:1.5px solid var(--ink)}
+.bar{display:block;height:14px;min-width:3px}
+.bar.neg{background:var(--loss);border-radius:4px 0 0 4px}
+.bar.pos{background:var(--gain);border-radius:0 4px 4px 0}
+.val{font-variant-numeric:tabular-nums;white-space:nowrap;font-weight:600}
+.val.n{color:var(--loss)}.val.p{color:var(--gain)}
+.empty{color:var(--soft);padding:14px 0}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:15px}
+th{text-align:left;font-weight:500;color:var(--soft);font-size:13px;padding:8px 6px;border-bottom:1.5px solid var(--ink)}
+td{padding:9px 6px;border-bottom:1px solid var(--line)}
+td:first-child{white-space:nowrap;font-weight:500}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.zero td{color:var(--soft);font-weight:400}
+.head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:end;gap:10px;margin-bottom:10px}
+.foot{background:var(--mist)}
+#todo{border-left:4px solid var(--loss);padding:4px 0 4px 16px;margin-bottom:24px}
+#todo ul{margin:6px 0 0;padding-left:18px}
+code{font-size:13px;overflow-wrap:anywhere}
+.small{font-size:14px;color:var(--soft);max-width:80ch}
+.small li{margin:4px 0}
+@media(max-width:900px){.hero .wrap,.grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:600px){#bars li{grid-template-columns:minmax(0,1fr) auto}.track{grid-column:1/-1;grid-row:2}dl{grid-template-columns:minmax(0,1fr)}table{font-size:13px}th,td{padding:6px 4px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<section class="band">
+  <div class="wrap">
+    <div class="brand">KESt-Rücklage</div>
+    <h1>Wie viel du für die Steuer zurücklegen musst</h1>
+    <p class="lead">Für Österreich und Broker ohne automatischen KESt-Abzug. Zieh deinen Trade-Republic-Transaktionsexport hinein (App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung).</p>
+    <div class="import">
+      <div id="drop">
+        <label class="btn" for="file">CSV-Datei wählen</label>
+        <input id="file" type="file" accept=".csv,text/csv">
+        <span id="source"></span>
+      </div>
+      <button class="btn ghost" id="sample" type="button">Beispieldaten zeigen</button>
+    </div>
+    <p class="priv">Deine Datei verlässt deinen Browser nicht. Es wird nichts hochgeladen oder gespeichert.</p>
+    <div id="error" hidden></div>
+  </div>
+</section>
+
+<section class="band hero">
+  <div class="wrap">
+    <div>
+      <label for="year">Soll-Rücklage für <span id="yearLabel"></span></label>
+      <div class="big" id="reserve">0,00 €</div>
+      <p class="note" id="reserveNote"></p>
+      <div class="ctrl">
+        <label>Jahr <select id="year"></select></label>
+        <label>Sicherheitspuffer <input id="buffer" type="range" min="0" max="30" step="5" value="10"> <b id="bufferOut">10 %</b></label>
+      </div>
+    </div>
+    <dl id="figs"></dl>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap grid">
+    <div>
+      <h2>Was dein Ergebnis bewegt</h2>
+      <p class="sub">Jeder Verkauf im Jahr, Gewinn nach rechts, Verlust nach links. Gerechnet mit dem gleitenden Durchschnittspreis, ohne Spesen.</p>
+      <ul id="bars"></ul>
+    </div>
+    <div>
+      <div class="head"><h2>Für deine E1kv</h2><button class="btn ghost" id="copy" type="button">Kennzahlen kopieren</button></div>
+      <p class="sub">Ausländische Kapitaleinkünfte, Verluste als positiver Betrag.</p>
+      <div class="scroll"><table><thead><tr><th>Kennzahl</th><th>Bedeutung</th><th class="num">Betrag</th></tr></thead><tbody id="kz"></tbody></table></div>
+    </div>
+  </div>
+</section>
+
+<section class="band foot">
+  <div class="wrap">
+    <div id="todo" hidden><h2>Nicht berechnet, bitte prüfen</h2><ul id="todoList"></ul></div>
+    <h2>Offene Positionen</h2>
+    <p class="sub">Diese Anschaffungskosten zählen, wenn du später verkaufst.</p>
+    <div class="scroll"><table><thead><tr><th>Wertpapier</th><th class="num">Stück</th><th class="num">Ø Preis</th><th class="num">Anschaffungskosten</th></tr></thead><tbody id="open"></tbody></table></div>
+    <h2 style="margin-top:28px">Gut zu wissen</h2>
+    <ul class="small">
+      <li>Berechnungstool, keine Steuer- oder Anlageberatung. Prüfe die Werte vor der Steuererklärung.</li>
+      <li>Verluste gleichen Gewinne nur im selben Kalenderjahr aus, ein Vortrag ins nächste Jahr ist nicht möglich.</li>
+      <li>Trade-Republic-Derivate (Optionsscheine, Turbos) gelten als verbrieft und werden mit 27,5 % gerechnet.</li>
+      <li>Krypto, die du in ein eigenes Wallet überträgst, wird als Übertrag ohne Gewinn behandelt. Spätere Verkäufe außerhalb von Trade Republic sind hier nicht enthalten.</li>
+    </ul>
+  </div>
+</section>
+<script>
+<!--APP_SCRIPT-->
+</script>
+</body>
+</html>

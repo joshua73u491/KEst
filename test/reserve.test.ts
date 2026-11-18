@@ -11,6 +11,11 @@ describe("Soll-Rücklage", () => {
     expect(reserveTarget({ basket275TaxEur: "33", tariffExtraTaxEur: "0", bufferRate: "0" }).toString()).toBe("33");
   });
 
+  test("Steuer auf Bankzinsen (25 %) zählt mit", () => {
+    const r = reserveTarget({ basket275TaxEur: "10", bankInterestTaxEur: "0.5", tariffExtraTaxEur: "0", bufferRate: "0" });
+    expect(r.toString()).toBe("10.5");
+  });
+
   test("negativer Puffer ist ungültig", () => {
     expect(() => reserveTarget({ basket275TaxEur: "1", tariffExtraTaxEur: "0", bufferRate: "-0.1" })).toThrow(/Puffer/);
   });
