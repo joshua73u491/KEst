@@ -6,7 +6,7 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 
 **KESt-Rücklage-App:** Für Anleger in Österreich mit einem nicht steuereinfachen Broker (Trade Republic, IBKR, DEGIRO …). Die App rechnet laufend die KESt aus und zeigt, wie viel man zurücklegen muss, damit das Geld beim Steuerbescheid da ist.
 
-- Produktplan (Doc): https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
+- Produktplan: `docs/PRODUKTPLAN.md` (Export des Docs https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i)
 - Aktuelle Web-App (Artefakt, aus `dist/kest-app.html`): https://claude.ai/artifact/1qjjh43KFpb7VtprnBRdAe
 - Zielgruppe: normale Nutzer **ohne Claude**. Einrichtung muss extrem einfach sein (Datei reinziehen, drei Fragen, Ergebnis in ~2 Minuten, kein Konto).
 - Alleinstellungsmerkmal: laufende Rücklage über das ganze Jahr. Konkurrenz (DepotTax, Tax-Wizard, KestKlar) rechnet nur einmal im Jahr die E1kv.

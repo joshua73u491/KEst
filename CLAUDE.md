@@ -1,6 +1,6 @@
 # Regeln für dieses Repository
 
-Zuerst `docs/HANDOFF.md` lesen: Produkt, Steuerregeln, offene Fragen und Stand.
+Zuerst `docs/HANDOFF.md` lesen (Stand, Steuerregeln, offene Fragen), dann `docs/PRODUKTPLAN.md` (vollständiger Produktplan mit Roadmap).
 
 - **Sprache:** Oberfläche, Fehlermeldungen, Doku und Testnamen auf Deutsch. Code-Bezeichner auf Englisch.
 - **Geld nur mit `decimal.js`** über `src/decimal.ts` (`dec`, `D`). Nie `number` für Beträge, Kurse oder Stückzahlen. Gerundet wird erst im Bericht.
