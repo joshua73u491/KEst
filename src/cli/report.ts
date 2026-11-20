@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { buildE1kvDocument, e1kvCsv, e1kvPdf } from "../e1kvReport.js";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
 import { checkBookings, type CheckInput } from "../check.js";
@@ -9,8 +10,9 @@ import { computeYear, type YearOptions } from "../yearReport.js";
 
 const USAGE =
   "Aufruf: npm run report -- <Datei> [weitere Dateien …] [Jahr] [--steuereinfach-seit JJJJ-MM-TT] " +
-  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861] [--derivate tarif|275] [--sonstiges-einkommen 30000]\n" +
-  "Dateien: Trade-Republic-CSV oder IBKR-Flex-XML; mehrere werden zusammengeführt, Duplikate zählen nur einmal.";
+  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861] [--derivate tarif|275] [--sonstiges-einkommen 30000] " +
+  "[--pdf <bericht.pdf>] [--csv <bericht.csv>]\n" +
+  "Dateien: Trade-Republic-CSV, IBKR-Flex-XML oder DEGIRO-CSV; mehrere werden zusammengeführt, Duplikate zählen nur einmal.";
 
 let positionals: string[] = [];
 let values: Record<string, string | undefined> = {};
@@ -23,6 +25,8 @@ try {
       "ibkr-zinsen": { type: "string" },
       derivate: { type: "string" },
       "sonstiges-einkommen": { type: "string" },
+      pdf: { type: "string" },
+      csv: { type: "string" },
     },
   });
   positionals = parsed.positionals;
@@ -70,7 +74,29 @@ try {
   if (options.taxSimpleSince) checkInput.taxSimpleSince = options.taxSimpleSince;
   console.log(formatFindings(checkBookings(checkInput)));
   console.log("");
-  console.log(formatReport(computeYear(data, year, options)));
+  const report = computeYear(data, year, options);
+  console.log(formatReport(report));
+  if (values.pdf || values.csv) {
+    const doc = buildE1kvDocument(report, {
+      createdAt: new Date().toISOString().slice(0, 10),
+      files: history.files.map((f) => f.name),
+      settings: {
+        ...history.settings,
+        taxSimpleSince: options.taxSimpleSince ?? "",
+        brokerInterestKz: options.brokerInterestKz ?? "863",
+        derivativesTreatment: options.derivativesTreatment ?? "tariff",
+        otherIncomeEur: options.otherIncomeEur ?? "",
+      },
+    });
+    if (values.pdf) {
+      writeFileSync(values.pdf, e1kvPdf(doc));
+      console.log(`PDF gespeichert: ${values.pdf}`);
+    }
+    if (values.csv) {
+      writeFileSync(values.csv, e1kvCsv(doc), "utf8");
+      console.log(`CSV gespeichert: ${values.csv}`);
+    }
+  }
 } catch (e) {
   console.error(`Auswertung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
   process.exit(1);

@@ -58,10 +58,23 @@ export interface RealizedLine {
   date: string;
   kind: AssetKind;
   gainEur: Dec;
+  /** Fundstelle der Verkaufsbuchung */
+  line: number;
+  file?: string;
+}
+
+/** Zinsbuchung im Jahr mit der Kennzahl, in die sie fällt (für die Belegliste). */
+export interface InterestLine {
+  line: number;
+  file?: string;
+  date: string;
+  amountEur: Dec;
+  kz: "861" | "863";
 }
 
 export interface DividendLine {
   line: number;
+  file?: string;
   isin: string;
   name: string;
   date: string;
@@ -131,6 +144,8 @@ export interface YearReport {
   feesEur: Dec;
   realized: RealizedLine[];
   dividends: DividendLine[];
+  /** Zinsbuchungen im Jahr (ohne endbesteuerte), mit Kennzahl */
+  interest: InterestLine[];
   /** endbesteuerte Erträge ab `taxSimpleSince` */
   taxedByBroker: BrokerTaxedLine[];
   /** Summe der von Trade Republic einbehaltenen Steuer auf `taxedByBroker` */
@@ -280,7 +295,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
           return;
         }
         if (!withheld.isZero()) notComputed.push({ ...at(t), type, reason: withheldNote(withheld) });
-        if (r) realized.push({ isin: t.isin, name: t.name, date: t.date, kind: t.kind, gainEur: r.gainEur });
+        if (r) realized.push({ isin: t.isin, name: t.name, date: t.date, kind: t.kind, gainEur: r.gainEur, ...at(t) });
       },
     })),
     ...data.transfersOut.map((t) => ({
@@ -412,7 +427,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
     }
     basketDividends.push({ grossEur: gross, withholdingEur: withheld, treatyRate });
     dividends.push({
-      line: d.line,
+      ...at(d),
       isin: d.isin,
       name: d.name,
       date: d.date,
@@ -428,6 +443,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
   }
 
   // Zinsen im Jahr
+  const interestLines: InterestLine[] = [];
   let kz861 = ZERO;
   let brokerInterestEur = ZERO;
   for (const i of data.interest.filter((x) => inYear(x.date))) {
@@ -453,16 +469,25 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
       // KZ 863: im 27,5 %-Topf mit Verlustausgleich; ohne Quellensteuer
       if (brokerInterestKz === "863") basketDividends.push({ grossEur: amount, withholdingEur: ZERO, treatyRate: ZERO });
       else kz861 = kz861.plus(amount);
+      interestLines.push({ ...at(i), date: i.date, amountEur: amount, kz: brokerInterestKz });
       continue;
     }
     kz861 = kz861.plus(amount);
+    interestLines.push({ ...at(i), date: i.date, amountEur: amount, kz: "861" });
   }
 
   // Ergebnisse aus nicht verbrieften Derivaten im Jahr (Verfall, Glattstellung, Verkauf)
   notComputed.push(...deriv.notes);
   for (const x of deriv.realized) {
     if (!inYear(x.trade.date)) continue;
-    realized.push({ isin: x.trade.derivative?.contract ?? "", name: x.trade.name || (x.trade.derivative?.contract ?? ""), date: x.trade.date, kind: "derivative", gainEur: x.gainEur });
+    realized.push({
+      isin: x.trade.derivative?.contract ?? "",
+      name: x.trade.name || (x.trade.derivative?.contract ?? ""),
+      date: x.trade.date,
+      kind: "derivative",
+      gainEur: x.gainEur,
+      ...at(x.trade),
+    });
   }
   for (const i of derivativeInputs) if (!i.failure && inYear(i.trade.date)) feesEur = feesEur.plus(i.trade.feeEur || "0");
 
@@ -526,6 +551,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
     feesEur,
     realized,
     dividends,
+    interest: interestLines,
     taxedByBroker,
     brokerWithheldEur: D.sum(ZERO, ...taxedByBroker.map((x) => x.withheldEur)),
     openPositions: positions.open().filter((p) => !broken.has(`${p.depot}|${p.isin}`)),

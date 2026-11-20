@@ -22,6 +22,7 @@ import {
 } from "../ledger.js";
 import { reminders, yearFigures, type YearFigures } from "../reminders.js";
 import { checkOrder, simulateSale } from "../simulator.js";
+import { buildE1kvDocument, e1kvCsv, e1kvPdf } from "../e1kvReport.js";
 import { reserveTarget } from "../reserve.js";
 import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
@@ -208,16 +209,20 @@ function readRateFile(file: File) {
   );
 }
 
-function saveBackup() {
-  const blob = new Blob([toBackup(state.history, new Date().toISOString())], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
+/** Lädt Daten als Datei herunter, ohne Server: alles entsteht im Browser. */
+function download(name: string, content: BlobPart, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `kest-ruecklage-backup-${today()}.json`;
+  a.download = name;
   document.body.append(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function saveBackup() {
+  download(`kest-ruecklage-backup-${today()}.json`, toBackup(state.history, new Date().toISOString()), "application/json");
   state.notice = "Backup gespeichert. Bewahre die Datei sicher auf, sie enthält deine vollständigen Exporte.";
   render();
 }
@@ -348,6 +353,8 @@ function renderEmpty() {
   $("derivSetting").hidden = true;
   $("incomeSetting").hidden = true;
   $("copy").onclick = null;
+  $("pdfOut").onclick = null;
+  $("csvOut").onclick = null;
 }
 
 function yearOptions(): YearOptions {
@@ -837,6 +844,16 @@ function render() {
     }
     setTimeout(() => ($("copy").textContent = "Kennzahlen kopieren"), 1800);
   };
+
+  // E1kv-Bericht (Schritt 3.4): entsteht im Browser, nichts wird hochgeladen
+  const reportDoc = () =>
+    buildE1kvDocument(report, {
+      createdAt: today(),
+      files: state.mode === "sample" ? ["Beispieldaten"] : state.history.files.map((f) => f.name),
+      settings: state.history.settings,
+    });
+  $("pdfOut").onclick = () => download(`e1kv-bericht-${report.year}.pdf`, e1kvPdf(reportDoc()), "application/pdf");
+  $("csvOut").onclick = () => download(`e1kv-bericht-${report.year}.csv`, e1kvCsv(reportDoc()), "text/csv;charset=utf-8");
 }
 
 {

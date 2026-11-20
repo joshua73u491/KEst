@@ -352,7 +352,13 @@ ul.check{margin:0;padding-left:20px}
       <ul id="bars"></ul>
     </div>
     <div>
-      <div class="head"><h2>Für deine E1kv</h2><button class="btn ghost" id="copy" type="button">Kennzahlen kopieren</button></div>
+      <div class="head"><h2>Für deine E1kv</h2>
+        <div class="storeActions">
+          <button class="btn ghost" id="copy" type="button">Kennzahlen kopieren</button>
+          <button class="btn ghost" id="pdfOut" type="button">Bericht als PDF</button>
+          <button class="btn ghost" id="csvOut" type="button">Bericht als CSV</button>
+        </div>
+      </div>
       <p class="sub" id="kzSub">Ausländische Kapitaleinkünfte, Verluste als positiver Betrag.</p>
       <div class="scroll"><table><thead><tr><th>Kennzahl</th><th>Bedeutung</th><th class="num">Betrag</th></tr></thead><tbody id="kz"></tbody></table></div>
     </div>
