@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { RateTable } from "../src/fx.js";
+import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
+import { ibCash, ibkrXml, ibPosition, ibTrade, type Sections } from "./helpers/ibkrXml.js";
 import { computeYear } from "../src/yearReport.js";
 import { dividend, interest, trade, trCsv, type TrRow } from "./helpers/trCsv.js";
 
@@ -366,6 +368,107 @@ describe("Jahresauswertung: Dividenden in Fremdwährung (EZB-Referenzkurs im Zuf
     );
     expect(r.kz994.toString()).toBe("10");
     expect(r.notComputed).toEqual([]);
+  });
+});
+
+describe("Jahresauswertung: IBKR (Flex Query)", () => {
+  // IBKR hält Fremdwährung ohne Umtausch: Kursgewinne zum EZB-Referenzkurs (EStR 2000 Rz 6201c, erster Punkt).
+  const rates = new RateTable([
+    ["USD", "2026-03-02", "1.25"],
+    ["USD", "2026-06-01", "1.30"],
+    ["USD", "2026-04-15", "1.20"],
+    ["USD", "2026-08-05", "1.10"],
+  ]);
+  const run = (s: Sections, options = {}) => computeYear(parseIbkrFlexXml(ibkrXml(s)), 2026, { rates, ...options });
+  const buy = ibTrade("BUY", "20260302", "US0000000101", "10", "1000.00");
+  const sell = ibTrade("SELL", "20260601", "US0000000101", "4", "520.00");
+
+  test("Kauf und Verkauf in USD zum EZB-Kurs am Handelstag, Kommission nicht abziehbar", () => {
+    // Kauf 1.000 USD / 1,25 = 800 € für 10 Stück (Ø 80 €). Verkauf 4 Stück: 520 USD / 1,30 = 400 €,
+    // Anschaffungskosten 4 × 80 = 320 €, Gewinn 80 €. Kommission je 1 USD: 0,80 € + 0,769… € = 1,57 €.
+    const r = run({ trades: [buy, sell] });
+    expect(r.kz994.toString()).toBe("80");
+    expect(r.feesEur.toDecimalPlaces(2).toString()).toBe("1.57");
+    expect(r.openPositions).toEqual([expect.objectContaining({ isin: "US0000000101", depot: "IBKR U0000000" })]);
+    expect(r.openPositions[0]?.costEur.toString()).toBe("480");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("ohne EZB-Kurs am Handelstag: kein Schätzen, spätere Verkäufe derselben Position auch nicht", () => {
+    const r = run({ trades: [ibTrade("BUY", "20260303", "US0000000101", "10", "1000.00"), sell] });
+    expect(r.realized).toEqual([]);
+    expect(r.notComputed.map((n) => n.line)).toEqual([5, 6]);
+    expect(r.notComputed[0]?.reason).toBe(
+      "Trade von US0000000101 in USD: Für USD gibt es am 2026-03-03 keinen EZB-Referenzkurs. Nicht berechnet.",
+    );
+    expect(r.notComputed[1]?.reason).toMatch(/seit Zeile 5 unvollständig/);
+  });
+
+  test("ohne geladene EZB-Kurse werden Trades in Fremdwährung nicht berechnet", () => {
+    const r = computeYear(parseIbkrFlexXml(ibkrXml({ trades: [buy] })), 2026);
+    expect(r.notComputed[0]?.reason).toBe("Trade von US0000000101 in USD: Die EZB-Referenzkurse sind nicht geladen. Nicht berechnet.");
+  });
+
+  test("US-Dividende mit Quellensteuer in USD: beides zum EZB-Kurs am Zahltag", () => {
+    // 10 USD / 1,20 = 8,333… €; 1,50 USD / 1,20 = 1,25 €; DBA USA 15 % von 8,333… € = 1,25 € anrechenbar.
+    const r = run({
+      cash: [
+        ibCash("Dividends", "20260415;202000", "10.00", { isin: "US0000000101", symbol: "SYM101" }),
+        ibCash("Withholding Tax", "20260415;202000", "-1.50", { isin: "US0000000101", symbol: "SYM101" }),
+      ],
+    });
+    expect(r.kz863.toDecimalPlaces(4).toString()).toBe("8.3333");
+    expect(r.kz998.toString()).toBe("1.25");
+    expect(r.dividends[0]?.ecbRate?.toString()).toBe("1.2");
+  });
+
+  test("Zinsen von IBKR: Standard KZ 863 (27,5 %), wahlweise KZ 861 (25 %)", () => {
+    // 4 USD / 1,10 = 3,636… €
+    const interest = { cash: [ibCash("Broker Interest Received", "20260805;202000", "4.00")] };
+    const std = run(interest);
+    expect(std.brokerInterestKz).toBe("863");
+    expect(std.brokerInterestEur.toDecimalPlaces(2).toString()).toBe("3.64");
+    expect(std.kz863.toDecimalPlaces(2).toString()).toBe("3.64");
+    expect(std.kz861.toString()).toBe("0");
+    const alt = run(interest, { brokerInterestKz: "861" });
+    expect(alt.kz863.toString()).toBe("0");
+    expect(alt.kz861.toDecimalPlaces(2).toString()).toBe("3.64");
+  });
+
+  test("Zinsen von IBKR in KZ 863 werden mit Verlusten ausgeglichen", () => {
+    // EUR-Zinsen 10 €, Kursverlust 4 € -> 6 € steuerpflichtig, 1,65 € Steuer.
+    const eur = { currency: "EUR", ibCommissionCurrency: "EUR" };
+    const r = run({
+      trades: [ibTrade("BUY", "20260302", "DE0000000201", "1", "50", eur), ibTrade("SELL", "20260303", "DE0000000201", "1", "46", eur)],
+      cash: [ibCash("Broker Interest Received", "20260905;202000", "10.00", { currency: "EUR" })],
+    });
+    expect(r.taxableBaseEur.toString()).toBe("6");
+    expect(r.tax275Eur.toString()).toBe("1.65");
+  });
+
+  test("Bestand laut IBKR weicht vom berechneten ab: Hinweis statt stiller Annahme", () => {
+    const r = run({ trades: [buy, sell], positions: [ibPosition("US0000000101", "6"), ibPosition("US0000000999", "3")] });
+    expect(r.notComputed).toEqual([
+      {
+        line: 12,
+        type: "OpenPosition",
+        reason:
+          "Bestand von US0000000999 laut IBKR am 2026-12-31: 3 Stück, laut App: 0 Stück. Vermutlich fehlen Käufe vor dem Exportzeitraum; " +
+          "Verkäufe dieser Position können falsch berechnet sein. Bitte den Export mit Zeitraum seit Kontoeröffnung verwenden.",
+      },
+    ]);
+  });
+
+  test("„steuereinfach seit“ gilt nur für Trade Republic, nicht für IBKR", () => {
+    const r = run({ trades: [buy, sell] }, { taxSimpleSince: "2026-01-01" });
+    expect(r.kz994.toString()).toBe("80");
+    expect(r.taxedByBroker).toEqual([]);
+  });
+
+  test("Fondsausschüttung (ETF) wird wie bei Trade Republic nicht berechnet", () => {
+    const r = run({ cash: [ibCash("Dividends", "20260601;202000", "3.00", { isin: "IE0000000301", currency: "EUR", subCategory: "ETF" })] });
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toMatch(/§ 186 InvFG 2011/);
   });
 });
 

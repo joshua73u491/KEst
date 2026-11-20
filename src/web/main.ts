@@ -2,7 +2,8 @@ import sampleCsv from "../../test/fixtures/tr-beispiel.csv";
 import { dec, D, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
 import { parseRateFile, type RateTable } from "../fx.js";
-import type { ImportResult } from "../import/tradeRepublic.js";
+import type { ImportResult } from "../import/model.js";
+import type { Broker } from "../import/readAny.js";
 import { reserveTarget } from "../reserve.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
@@ -10,6 +11,9 @@ import { readExport } from "./readExport.js";
 
 interface State {
   data: ImportResult | null;
+  broker: Broker | "";
+  /** Kennzahl für IBKR-Zinsen (Einstellung, offene Frage an den Steuerberater) */
+  brokerInterestKz: "863" | "861";
   source: string;
   isSample: boolean;
   year: number;
@@ -32,6 +36,8 @@ const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zin
 
 const state: State = {
   data: null,
+  broker: "",
+  brokerInterestKz: "863",
   source: "",
   isSample: true,
   year: 2026,
@@ -89,6 +95,7 @@ function load(text: string, source: string, isSample: boolean) {
   state.isSample = isSample;
   if (r.ok) {
     state.data = r.data;
+    state.broker = r.broker;
     state.error = "";
     state.year = yearsOf(r.data)[0] ?? state.year;
     loadRates(r.data);
@@ -148,6 +155,7 @@ function renderEmpty() {
   $("todoList").innerHTML = "";
   $("divBlock").hidden = true;
   $("brokerBlock").hidden = true;
+  $("kzSetting").hidden = true;
   $("copy").onclick = null;
 }
 
@@ -182,6 +190,7 @@ function render() {
     const options: YearOptions = {};
     if (state.taxSimpleSince) options.taxSimpleSince = state.taxSimpleSince;
     if (state.rates) options.rates = state.rates;
+    options.brokerInterestKz = state.brokerInterestKz;
     report = computeYear(data, state.year, options);
   } catch (e) {
     fail(`Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
@@ -197,7 +206,8 @@ function render() {
 
   $("source").innerHTML = state.isSample
     ? "Beispieldaten geladen. Zieh deinen eigenen Export hierher, um deine Zahlen zu sehen."
-    : `Geladen: <b>${esc(state.source)}</b> · ${data.trades.length} Trades`;
+    : `Geladen: <b>${esc(state.source)}</b> · ${esc(state.broker)} · ${data.trades.length} Trades`;
+  $("kzSetting").hidden = !data.interest.some((i) => i.source === "broker");
   $("year").innerHTML = yearsOf(data)
     .map((y) => `<option value="${y}"${y === state.year ? " selected" : ""}>${y}</option>`)
     .join("");
@@ -350,6 +360,10 @@ function readFile(file: File) {
   rateInput.addEventListener("change", () => {
     if (rateInput.files?.[0]) readRateFile(rateInput.files[0]);
     rateInput.value = "";
+  });
+  $<HTMLSelectElement>("ibkrKz").addEventListener("change", (e) => {
+    state.brokerInterestKz = (e.target as HTMLSelectElement).value === "861" ? "861" : "863";
+    render();
   });
   $<HTMLInputElement>("since").addEventListener("change", (e) => {
     state.taxSimpleSince = (e.target as HTMLInputElement).value;

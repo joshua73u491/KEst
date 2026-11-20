@@ -35,6 +35,7 @@ export function formatReport(r: YearReport): string {
     line("KZ 863  Dividenden, Wertpapierzinsen", r.kz863),
     line("KZ 998  Anrechenbare Quellensteuer", r.kz998),
     line("KZ 861  Zinsen aus Geldeinlagen", r.kz861),
+    ...(r.brokerInterestEur.isZero() ? [] : [line(`  IBKR-Zinsen, Einstellung KZ ${r.brokerInterestKz}`, r.brokerInterestEur)]),
     "",
     line("Bemessungsgrundlage 27,5 %", r.taxableBaseEur),
     line("Steuer 27,5 %", r.tax275Eur),
