@@ -32,7 +32,11 @@ h2{font-size:22px;line-height:1.2;margin:0 0 4px}
 .btn{font:600 15px/1 Inter,sans-serif;min-height:44px;padding:0 18px;border-radius:10px;border:0;background:var(--ink);color:var(--bg);cursor:pointer;display:inline-flex;align-items:center}
 .btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
 .btn:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--green);outline-offset:2px}
-#file{position:absolute;width:1px;height:1px;opacity:0}
+#file,#rateFile{position:absolute;width:1px;height:1px;opacity:0}
+#ratesBox{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;margin-top:10px;font-size:14px;color:var(--soft)}
+#ratesBox[hidden]{display:none}
+#ratesBox p{margin:0;max-width:72ch}
+#ratesBox a{color:inherit}
 #source{font-size:14px;color:var(--soft)}
 .priv{font-size:13px;color:var(--soft);margin:10px 0 0}
 #error{margin-top:12px;padding:10px 14px;border-radius:10px;background:color-mix(in srgb,var(--loss) 14%,transparent);color:var(--ink)}
@@ -99,8 +103,13 @@ code{font-size:13px;overflow-wrap:anywhere}
       </div>
       <button class="btn ghost" id="sample" type="button">Beispieldaten zeigen</button>
     </div>
-    <p class="priv">Deine Datei verlässt deinen Browser nicht. Es wird nichts hochgeladen oder gespeichert.</p>
+    <p class="priv">Deine Datei verlässt deinen Browser nicht. Es wird nichts hochgeladen oder gespeichert. Für Dividenden in Fremdwährung ruft die App die öffentlichen EZB-Referenzkurse ab; dabei werden nur Währung und Zeitraum übermittelt.</p>
     <div id="error" hidden></div>
+    <div id="ratesBox" hidden>
+      <p id="ratesStatus"></p>
+      <span id="rateFileBtn" hidden><label class="btn ghost" for="rateFile">EZB-Kursdatei wählen</label> <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html" target="_blank" rel="noopener">Download bei der EZB</a> (eurofxref-hist.zip, entpackt)</span>
+      <input id="rateFile" type="file" accept=".csv,text/csv">
+    </div>
   </div>
 </section>
 
@@ -157,7 +166,8 @@ code{font-size:13px;overflow-wrap:anywhere}
       <li>Verluste gleichen Gewinne nur im selben Kalenderjahr aus, ein Vortrag ins nächste Jahr ist nicht möglich.</li>
       <li>Trade-Republic-Derivate (Optionsscheine, Turbos) gelten als verbrieft und werden mit 27,5 % gerechnet.</li>
       <li>Krypto, die du in ein eigenes Wallet überträgst, wird als Übertrag ohne Gewinn behandelt. Spätere Verkäufe außerhalb von Trade Republic sind hier nicht enthalten.</li>
-      <li>Ausschüttungen von Fonds und ETFs, Dividenden in Fremdwährung und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
+      <li>Dividenden in Fremdwährung rechnet die App mit dem EZB-Referenzkurs am Zuflusstag um. Gibt es an diesem Tag keinen Kurs, wird nicht geschätzt. Bei Käufen und Verkäufen in Fremdwährung zählt der Euro-Betrag, den Trade Republic tatsächlich umgerechnet hat.</li>
+      <li>Ausschüttungen von Fonds und ETFs und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
       <li>Steuereinfach heißt: Trade Republic zieht die KESt selbst ab und führt sie ans Finanzamt ab. Erträge ab dem angegebenen Tag zählen hier deshalb weder für die E1kv noch für die Rücklage.</li>
     </ul>
   </div>

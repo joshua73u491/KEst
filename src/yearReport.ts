@@ -2,6 +2,7 @@ import { computeBasket275, type Dividend } from "./basket275.js";
 import { InsufficientPositionError, Positions, type Position, type Trade } from "./costBasis.js";
 import { dec, D, ZERO, type Dec } from "./decimal.js";
 import { formatEur } from "./format.js";
+import type { RateSource } from "./fx.js";
 import type { AssetKind, ImportResult, Unsupported } from "./import/tradeRepublic.js";
 import { countryOfIsin, dividendTreatyRate } from "./treaty.js";
 
@@ -13,6 +14,8 @@ export interface YearOptions {
    * Erträge ab diesem Tag gelten als endbesteuert: Sie zählen nicht für die E1kv und nicht für die Rücklage.
    */
   taxSimpleSince?: string;
+  /** EZB-Referenzkurse für Dividenden in Fremdwährung; ohne Kursquelle werden sie als „nicht berechnet“ gemeldet */
+  rates?: RateSource;
 }
 
 export interface RealizedLine {
@@ -30,8 +33,13 @@ export interface DividendLine {
   date: string;
   /** Quellenstaat laut ISIN */
   country: string;
+  /** Ausschüttungswährung, leer bei EUR */
+  originalCurrency: string;
+  /** verwendeter EZB-Referenzkurs im Zuflusszeitpunkt (Einheiten Fremdwährung je EUR), `null` bei EUR */
+  ecbRate: Dec | null;
+  /** Bruttobetrag in EUR (bei Fremdwährung zum EZB-Referenzkurs) */
   grossEur: Dec;
-  /** tatsächlich einbehaltene Quellensteuer */
+  /** tatsächlich einbehaltene Quellensteuer in EUR (bei Fremdwährung zum EZB-Referenzkurs) */
   withheldEur: Dec;
   /** DBA-Höchstsatz, 0 wenn nicht hinterlegt */
   treatyRate: Dec;
@@ -206,8 +214,8 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   const basketDividends: Dividend[] = [];
   for (const d of data.dividends.filter((x) => inYear(x.date))) {
     const type = d.kind === "fund" ? "CASH/DISTRIBUTION" : d.kind === "capitalDistribution" ? "CASH/DIVIDEND_EQUIVALENT_PAYMENT" : "CASH/DIVIDEND";
-    const gross = dec(d.grossEur);
-    const withheld = dec(d.withheldEur);
+    let gross = dec(d.grossEur);
+    let withheld = dec(d.withheldEur);
     if (taxedByTr(d.date)) {
       taxedByBroker.push({ line: d.line, date: d.date, kind: "dividend", isin: d.isin, name: d.name, amountEur: gross, withheldEur: withheld });
       continue;
@@ -222,9 +230,40 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       );
       continue;
     }
+    let ecbRate: Dec | null = null;
     if (d.originalCurrency !== "") {
-      skip(`Dividende von ${d.isin} in ${d.originalCurrency}: Umrechnung zum EZB-Referenzkurs wird noch nicht unterstützt. Nicht berechnet.`);
-      continue;
+      // EStR 2000 Rz 6201c: Einkünfte in Fremdwährung (zB Dividenden) mit dem EZB-Referenzkurs im Zuflusszeitpunkt bewerten.
+      // https://findok.bmf.gv.at (EStR 2000, Abschnitt 20.2.4.12, Fassung vom 21.04.2026)
+      const cur = d.originalCurrency;
+      if (!options.rates) {
+        skip(`Dividende von ${d.isin} in ${cur}: Die EZB-Referenzkurse sind nicht geladen. Nicht berechnet.`);
+        continue;
+      }
+      if (d.originalAmount === "") {
+        skip(`Dividende von ${d.isin}: Der Originalbetrag in ${cur} fehlt im Export. Nicht berechnet.`);
+        continue;
+      }
+      const rate = options.rates.rate(cur, d.date);
+      if (!rate) {
+        skip(
+          `Dividende von ${d.isin}: Für ${cur} gibt es am ${d.date} keinen EZB-Referenzkurs (z. B. Wochenende oder Feiertag). ` +
+            `Eine offizielle Regel für diesen Fall ist nicht bekannt. Nicht berechnet.`,
+        );
+        continue;
+      }
+      if (!withheld.isZero()) {
+        // Trade Republic weist die Steuer nur in EUR aus. Zurück in die Originalwährung mit dem Kurs von Trade Republic
+        // (Annahme im README: dieselbe Umrechnung wie beim Bruttobetrag), dann zum EZB-Kurs in EUR.
+        if (d.brokerFxRate === "" || dec(d.brokerFxRate).lte(0)) {
+          skip(
+            `Dividende von ${d.isin} in ${cur}: Der Umrechnungskurs von Trade Republic fehlt, die einbehaltene Steuer lässt sich nicht in ${cur} zurückrechnen. Nicht berechnet.`,
+          );
+          continue;
+        }
+        withheld = withheld.div(d.brokerFxRate).div(rate);
+      }
+      gross = dec(d.originalAmount).div(rate);
+      ecbRate = rate;
     }
     const country = countryOfIsin(d.isin);
     if (country === null) {
@@ -254,6 +293,8 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       name: d.name,
       date: d.date,
       country,
+      originalCurrency: d.originalCurrency,
+      ecbRate,
       grossEur: gross,
       withheldEur: withheld,
       treatyRate,

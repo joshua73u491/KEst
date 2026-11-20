@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { formatEur, formatReport } from "../src/format.js";
+import { RateTable } from "../src/fx.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
 import { dividend, interest, trCsv } from "./helpers/trCsv.js";
@@ -34,5 +35,19 @@ describe("Ausgabe", () => {
     expect(text).toMatch(/Einbehalten von Trade Republic +1,10 €/);
     // Kennzahlen nur aus der Zeit vor der Umstellung
     expect(text).toMatch(/KZ 861 {2}Zinsen aus Geldeinlagen +0,00 €/);
+  });
+
+  test("Bericht nennt bei Dividenden in Fremdwährung Währung und EZB-Kurs", () => {
+    const csv = trCsv(
+      dividend("2026-04-15T00:00:00.000000Z", "US0000000001", "90.00", "-13.50", {
+        name: "Amerika Beispiel",
+        original_amount: "100.00",
+        original_currency: "USD",
+        fx_rate: "0.9",
+      }),
+    );
+    const rates = new RateTable([["USD", "2026-04-15", "1.25"]]);
+    const text = formatReport(computeYear(parseTradeRepublicCsv(csv), 2026, { rates }));
+    expect(text).toMatch(/2026-04-15 {2}Amerika Beispiel \(US\) +80,00 € · 12,00 € · 12,00 € {2}\(USD, EZB-Kurs 1\.25\)/);
   });
 });

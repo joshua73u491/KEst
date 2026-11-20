@@ -34,7 +34,7 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 | Anrechenbare Quellensteuer | – | 998 |
 
 - Anschaffungskosten: **gleitender Durchschnittspreis** je ISIN und Depot, in EUR. FIFO ist verboten. Spesen zählen im 27,5 %-Topf nicht.
-- Fremdwährung: EZB-Referenzkurs am Buchungstag.
+- Fremdwährung (EStR 2000 Rz 6201c): Erträge (Dividenden, Zinsen) und Kursgewinne ohne tatsächlichen Umtausch zum EZB-Referenzkurs im Zuflusszeitpunkt; bei tatsächlicher Konvertierung in Euro zählt der verwendete Kurs. Trade Republic rechnet tatsächlich um, dort zählt der Euro-Betrag aus dem Export (Entscheidung Joshua, 20.11.2026).
 - Verlustausgleich nur im selben Kalenderjahr, kein Vortrag. Verluste im 27,5 %-Topf dürfen Dividenden ausgleichen; dann sinkt die anrechenbare Quellensteuer. Bankzinsen (25 %) sind ein eigener Topf.
 - Quellensteuer nur bis zum DBA-Satz anrechenbar (USA 15 %).
 - Stillhalter: Prämie wird bei Verfall bzw. Glattstellung erfasst.
@@ -57,6 +57,8 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - „Capital Distribution“ (`DIVIDEND_EQUIVALENT_PAYMENT`): Dividende oder Einlagenrückzahlung (mindert die Anschaffungskosten)? Derzeit nicht berechnet.
 - Quellensteuer aus Irland (DBA Art. 8, 15 % nur mit irischer Steuergutschrift), Japan (DBA BGBl. III Nr. 167/2018) und dem Vereinigten Königreich: DBA-Satz noch nicht hinterlegt, derzeit keine Anrechnung. Die MLI-synthetisierten Fassungen der Abkommen sind nicht geprüft.
 - Quellenstaat bei Hinterlegungsscheinen (ADR) und Gesellschaften mit Sitz außerhalb des ISIN-Landes: Derzeit gilt das Land der ISIN.
+- Fremdwährung an einem Tag ohne EZB-Referenzkurs (Wochenende, Feiertag): Welcher Kurs gilt? EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt, eine Regel für fehlende Kurse ist nicht bekannt. Derzeit „nicht berechnet“.
+- Quellensteuer bei Dividenden in Fremdwährung: Trade Republic weist sie nur in EUR aus. Die App rechnet sie mit dem Kurs von Trade Republic in die Originalwährung zurück und dann zum EZB-Kurs in EUR (Annahme: derselbe Kurs wie für den Bruttobetrag).
 
 ## Stand des Codes
 
@@ -68,7 +70,8 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - Review und Härtung (PR #2): BOM, falsche/leere Datei, ungültige Zahlen und Daten, gleicher Zeitstempel, fehlender Bestand („nicht berechnet“ statt Abbruch), Übertrag größer als Bestand, Hinweise für Fonds/ETF und Spalte `tax`; Web-App zeigt Fehler klar und lässt keine alten Zahlen stehen. 77 Tests grün.
 - **Schritt 1.1 (Branch `schritt-1.1-tr-dividenden`):** Dividenden aus dem Trade-Republic-Export (`CASH/DIVIDEND`, belegt über den Importer von Portfolio Performance) → KZ 863, Quellensteuer → KZ 998, gedeckelt mit dem DBA-Satz je Land (`src/treaty.ts`, 14 Länder aus dem RIS) und gekürzt nach Verlustausgleich. Stornos werden verrechnet oder gemeldet. Fondsausschüttungen, Kapitalausschüttungen, Dividenden in Fremdwährung, inländische Dividenden und Anleihezinsen werden „nicht berechnet“ gemeldet. Neu: Einstellung „steuereinfach seit“ (Web-App, `--steuereinfach-seit` im Bericht): Erträge ab dann gelten als endbesteuert und erscheinen getrennt mit der einbehaltenen Steuer. Der Hinweis zur Spalte `tax` kommt jetzt aus der Jahresauswertung und nur im betroffenen Jahr. 116 Tests grün.
 - Das Ergebnis 2026 aus Joshuas Export (oben) ist ohne „steuereinfach seit“ gerechnet. Da sein Konto umgestellt ist, muss er es mit seinem Umstellungsdatum neu rechnen.
-- Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, keine Fondsausschüttungen, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011), keine Fremdwährung (Schritt 1.2). Import-Hinweise unter „Nicht berechnet“ erscheinen weiterhin in jedem Jahr, nicht nur im betroffenen.
+- **Schritt 1.2 (Branch `schritt-1.2-ezb-kurse`, baut auf 1.1 auf):** Austauschbare Kursquelle `RateSource` mit `RateTable` (`src/fx.ts`), Einlesen von `eurofxref-hist.csv` und der CSV der EZB-Datenschnittstelle. Dividenden in Fremdwährung zum EZB-Referenzkurs am Zuflusstag; ohne Kurs an dem Tag „nicht berechnet“. Trades in Fremdwährung bei Trade Republic werden nicht mehr abgelehnt, es zählt der tatsächlich umgerechnete Euro-Betrag. Web-App ruft die Kurse automatisch bei der EZB ab (nur Währung und Zeitraum, Entscheidung Joshua); scheitert das, kann man die EZB-Kursdatei laden. Bericht: `--ezb-kurse <datei>`. 137 Tests grün.
+- Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, keine Fondsausschüttungen, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011). Import-Hinweise unter „Nicht berechnet“ erscheinen weiterhin in jedem Jahr, nicht nur im betroffenen.
 
 ## Roadmap (Kurzform)
 

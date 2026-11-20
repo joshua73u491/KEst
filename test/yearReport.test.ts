@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
+import { RateTable } from "../src/fx.js";
 import { computeYear } from "../src/yearReport.js";
 import { dividend, interest, trade, trCsv, type TrRow } from "./helpers/trCsv.js";
 
@@ -225,12 +226,12 @@ describe("Jahresauswertung: Dividenden und Quellensteuer", () => {
     expect(r.notComputed).toEqual([]);
   });
 
-  test("Dividende in Fremdwährung wird bis zur EZB-Umrechnung nicht berechnet", () => {
-    const r = year(dividend(T, "US0000000001", "29.58", "-4.44", { original_amount: "34.51", original_currency: "USD" }));
+  test("Dividende in Fremdwährung ohne geladene EZB-Kurse wird nicht berechnet", () => {
+    const r = year(dividend(T, "US0000000001", "29.58", "-4.44", { original_amount: "34.51", original_currency: "USD", fx_rate: "0.857265" }));
     expect(r.kz863.toString()).toBe("0");
     expect(r.kz998.toString()).toBe("0");
     expect(r.notComputed[0]?.reason).toBe(
-      "Dividende von US0000000001 in USD: Umrechnung zum EZB-Referenzkurs wird noch nicht unterstützt. Nicht berechnet.",
+      "Dividende von US0000000001 in USD: Die EZB-Referenzkurse sind nicht geladen. Nicht berechnet.",
     );
   });
 
@@ -292,6 +293,79 @@ describe("Jahresauswertung: Dividenden und Quellensteuer", () => {
     const r = year(interest(T, "2.00", { tax: "-0.50" }));
     expect(r.kz861.toString()).toBe("2");
     expect(r.notComputed[0]?.reason).toMatch(/0,50 € Steuer einbehalten/);
+  });
+});
+
+describe("Jahresauswertung: Dividenden in Fremdwährung (EZB-Referenzkurs im Zuflusszeitpunkt)", () => {
+  // EStR 2000 Rz 6201c: Einkünfte in Fremdwährung (zB Dividenden) mit dem EZB-Referenzkurs im Zuflusszeitpunkt bewerten.
+  const rates = new RateTable([
+    ["USD", "2026-04-15", "1.25"],
+    ["USD", "2026-04-17", "1.20"],
+  ]);
+  const year = (...rows: TrRow[]) => computeYear(parseTradeRepublicCsv(trCsv(...rows)), 2026, { rates });
+  // 100 USD brutto; Trade Republic rechnet mit 0,9 um: 90 € gutgeschrieben, 13,50 € (= 15 USD) einbehalten.
+  const usd = (at: string, extra: TrRow = {}) =>
+    dividend(at, "US0000000001", "90.00", "-13.50", { original_amount: "100.00", original_currency: "USD", fx_rate: "0.9", ...extra });
+
+  test("US-Dividende: Brutto und Quellensteuer zum EZB-Kurs, DBA-Deckel 15 %", () => {
+    // EZB 2026-04-15: 1 EUR = 1,25 USD. Brutto 100 / 1,25 = 80 €. Quellensteuer 13,50 / 0,9 = 15 USD -> 15 / 1,25 = 12 €.
+    // DBA USA 15 % von 80 € = 12 € anrechenbar. KESt 27,5 % von 80 € = 22 € − 12 € = 10 €.
+    const r = year(usd("2026-04-15T00:00:00.000000Z"));
+    expect(r.kz863.toString()).toBe("80");
+    expect(r.kz998.toString()).toBe("12");
+    expect(r.tax275Eur.toString()).toBe("10");
+    expect(r.dividends[0]).toMatchObject({ originalCurrency: "USD" });
+    expect(r.dividends[0]?.ecbRate?.toString()).toBe("1.25");
+    expect(r.dividends[0]?.withheldEur.toString()).toBe("12");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("an einem Tag ohne EZB-Kurs (Wochenende, Feiertag) wird nicht geschätzt", () => {
+    const r = year(usd("2026-04-16T00:00:00.000000Z"));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed).toEqual([
+      {
+        line: 2,
+        type: "CASH/DIVIDEND",
+        reason:
+          "Dividende von US0000000001: Für USD gibt es am 2026-04-16 keinen EZB-Referenzkurs (z. B. Wochenende oder Feiertag). " +
+          "Eine offizielle Regel für diesen Fall ist nicht bekannt. Nicht berechnet.",
+      },
+    ]);
+  });
+
+  test("ohne Umrechnungskurs von Trade Republic lässt sich die Quellensteuer nicht in USD zurückrechnen", () => {
+    const r = year(usd("2026-04-15T00:00:00.000000Z", { fx_rate: "" }));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toMatch(/Umrechnungskurs von Trade Republic fehlt/);
+  });
+
+  test("ohne Quellensteuer genügt der Originalbetrag", () => {
+    const r = year(usd("2026-04-17T00:00:00.000000Z", { tax: "", fx_rate: "" }));
+    // 100 USD / 1,20 = 83,333… €
+    expect(r.kz863.toDecimalPlaces(2).toString()).toBe("83.33");
+    expect(r.kz998.toString()).toBe("0");
+  });
+
+  test("ohne Originalbetrag wird nicht geschätzt", () => {
+    const r = year(usd("2026-04-15T00:00:00.000000Z", { original_amount: "" }));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toMatch(/Originalbetrag in USD fehlt/);
+  });
+
+  test("ab „steuereinfach seit“ zählt der von Trade Republic gutgeschriebene Betrag, ohne EZB-Kurs", () => {
+    const r = computeYear(parseTradeRepublicCsv(trCsv(usd("2026-04-16T00:00:00.000000Z"))), 2026, { taxSimpleSince: "2026-01-01" });
+    expect(r.taxedByBroker[0]?.amountEur.toString()).toBe("90");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("Trade in Fremdwährung: Gewinn aus den tatsächlich umgerechneten EUR-Beträgen", () => {
+    const r = year(
+      trade("BUY", "2026-01-02T10:00:00.000Z", "US0000000002", "1", "50.00", { original_amount: "-55.00", original_currency: "USD", fx_rate: "0.909091" }),
+      trade("SELL", "2026-02-02T10:00:00.000Z", "US0000000002", "1", "60.00", { original_amount: "62.00", original_currency: "USD", fx_rate: "0.967742" }),
+    );
+    expect(r.kz994.toString()).toBe("10");
+    expect(r.notComputed).toEqual([]);
   });
 });
 

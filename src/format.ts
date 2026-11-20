@@ -49,7 +49,12 @@ export function formatReport(r: YearReport): string {
     out.push("", "Dividenden (brutto · einbehalten · anrechenbar)");
     out.push(
       ...r.dividends.map((d) =>
-        detail(`${d.date}  ${(d.name || d.isin).slice(0, 22)} (${d.country})`, d.grossEur, ` · ${formatEur(d.withheldEur)} · ${formatEur(d.creditableEur)}`),
+        detail(
+          `${d.date}  ${(d.name || d.isin).slice(0, 22)} (${d.country})`,
+          d.grossEur,
+          ` · ${formatEur(d.withheldEur)} · ${formatEur(d.creditableEur)}` +
+            (d.ecbRate ? `  (${d.originalCurrency}, EZB-Kurs ${d.ecbRate.toString()})` : ""),
+        ),
       ),
     );
     out.push("Anrechenbar ist höchstens der DBA-Satz; nach einem Verlustausgleich kann KZ 998 niedriger sein.");

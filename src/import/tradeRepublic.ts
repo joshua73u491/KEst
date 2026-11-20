@@ -19,6 +19,11 @@ export interface ImportedTrade {
   feeEur: string;
   /** von Trade Republic einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten, negativ = gutgeschrieben) */
   withheldEur: string;
+  /**
+   * Handelswährung, wenn nicht EUR. `amountEur` ist dann der Betrag, den Trade Republic tatsächlich umgerechnet hat;
+   * bei tatsächlicher Konvertierung zählt dieser Kurs (EStR 2000 Rz 6201c, Annahme im README).
+   */
+  originalCurrency: string;
   kind: AssetKind;
   name: string;
 }
@@ -68,6 +73,10 @@ export interface ImportedDividend {
   withheldEur: string;
   /** Originalwährung laut Export; leer, wenn in EUR ausgeschüttet */
   originalCurrency: string;
+  /** Bruttobetrag in der Originalwährung (Spalte `original_amount`), leer bei EUR */
+  originalAmount: string;
+  /** Umrechnungskurs von Trade Republic (Spalte `fx_rate`, EUR je Einheit Fremdwährung), leer wenn nicht angegeben */
+  brokerFxRate: string;
 }
 
 export interface Unsupported {
@@ -178,6 +187,12 @@ function withheldOf(row: Record<string, string>): string {
   return tax.isZero() ? "0" : tax.negated().toString();
 }
 
+/** Originalwährung laut Export, leer bei EUR oder ohne Angabe. */
+function originalCurrencyOf(row: Record<string, string>): string {
+  const c = (row.original_currency ?? "").trim().toUpperCase();
+  return c === "EUR" ? "" : c;
+}
+
 function dateOf(row: Record<string, string>): string {
   const date = row.date ?? "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new RowError(`Datum „${date}“ ist ungültig`);
@@ -233,6 +248,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
           if (symbol.trim() === "") throw new RowError("ISIN fehlt");
           const gross = num(row, "amount");
           if (gross.isZero()) throw new RowError("Betrag 0");
+          const originalCurrency = originalCurrencyOf(row);
           const entry: ImportedDividend = {
             line,
             isin: symbol.trim(),
@@ -243,7 +259,9 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
             kind,
             grossEur: gross.toString(),
             withheldEur: withheldOf(row),
-            originalCurrency: (row.original_currency ?? "").trim() === "EUR" ? "" : (row.original_currency ?? "").trim(),
+            originalCurrency,
+            originalAmount: originalCurrency !== "" && (row.original_amount ?? "").trim() !== "" ? num(row, "original_amount").toString() : "",
+            brokerFxRate: originalCurrency !== "" && (row.fx_rate ?? "").trim() !== "" ? num(row, "fx_rate").toString() : "",
           };
           if (gross.lt(0)) reversals.push({ dividend: entry, label });
           else result.dividends.push(entry);
@@ -273,11 +291,6 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
           flag(line, label, `Währung ${row.currency} wird noch nicht unterstützt`, affects);
           continue;
         }
-        const originalCurrency = (row.original_currency ?? "").trim();
-        if (originalCurrency !== "" && originalCurrency !== "EUR") {
-          flag(line, label, `Originalwährung ${originalCurrency}: Umrechnung zum EZB-Referenzkurs wird noch nicht unterstützt`, affects);
-          continue;
-        }
         const quantity = num(row, "shares").abs();
         if (quantity.isZero()) throw new RowError("Stückzahl 0");
         const trade: ImportedTrade = {
@@ -291,6 +304,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
           amountEur: num(row, "amount").abs().toString(),
           feeEur: (row.fee ?? "").trim() === "" ? "0" : num(row, "fee").abs().toString(),
           withheldEur: withheldOf(row),
+          originalCurrency: originalCurrencyOf(row),
           kind,
           name: row.name ?? "",
         };

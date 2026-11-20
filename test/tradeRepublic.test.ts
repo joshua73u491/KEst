@@ -82,6 +82,11 @@ describe("Trade-Republic-Import: Randfälle", () => {
     expect(() => parseTradeRepublicCsv(excel)).toThrow(/Semikolon/);
   });
 
+  test("Trade in EUR hat keine Originalwährung", () => {
+    const r = parseTradeRepublicCsv(trCsv(trade("BUY", at, "US0000000009", "1", "10.00", { original_currency: "EUR" })));
+    expect(r.trades[0]?.originalCurrency).toBe("");
+  });
+
   test("Trades und Überträge kennen ihre Zeile in der Datei", () => {
     const r = parseTradeRepublicCsv(sample);
     expect(r.trades.find((t) => t.isin === "US0000000003" && t.side === "buy")?.line).toBe(2);
@@ -141,12 +146,14 @@ describe("Trade-Republic-Import: Randfälle", () => {
     expect(r.unsupported).toEqual([]);
   });
 
-  test("Umrechnung durch Trade Republic statt EZB-Referenzkurs wird gemeldet", () => {
+  test("Trade in Fremdwährung: es zählt der tatsächlich umgerechnete EUR-Betrag (EStR 2000 Rz 6201c)", () => {
+    // Trade Republic führt nur ein EUR-Konto und rechnet sofort um: tatsächliche Konvertierung.
     const r = parseTradeRepublicCsv(
-      trCsv(trade("BUY", at, "US0000000009", "1", "10.00", { original_amount: "-11.00", original_currency: "USD" })),
+      trCsv(trade("BUY", at, "US0000000009", "1", "10.00", { original_amount: "-11.00", original_currency: "USD", fx_rate: "0.909091" })),
     );
-    expect(r.trades).toEqual([]);
-    expect(r.unsupported[0]?.reason).toMatch(/Originalwährung USD/);
+    expect(r.trades).toHaveLength(1);
+    expect(r.trades[0]).toMatchObject({ amountEur: "10", originalCurrency: "USD" });
+    expect(r.unsupported).toEqual([]);
   });
 
   test("Fonds und ETFs: Hinweis auf fehlende ausschüttungsgleiche Erträge, einmal je ISIN", () => {
@@ -182,6 +189,8 @@ describe("Trade-Republic-Import: Ausschüttungen", () => {
         grossEur: "100",
         withheldEur: "26.38",
         originalCurrency: "",
+        originalAmount: "",
+        brokerFxRate: "",
       },
     ]);
     expect(r.unsupported).toEqual([]);
@@ -196,7 +205,13 @@ describe("Trade-Republic-Import: Ausschüttungen", () => {
     const r = parseTradeRepublicCsv(
       trCsv(dividend(at, "US0000000001", "29.580000", "-4.44", { original_amount: "34.51", original_currency: "USD", fx_rate: "0.857265" })),
     );
-    expect(r.dividends[0]).toMatchObject({ grossEur: "29.58", withheldEur: "4.44", originalCurrency: "USD" });
+    expect(r.dividends[0]).toMatchObject({
+      grossEur: "29.58",
+      withheldEur: "4.44",
+      originalCurrency: "USD",
+      originalAmount: "34.51",
+      brokerFxRate: "0.857265",
+    });
   });
 
   test("Ausschüttungen von Fonds und ETFs werden als Fondsausschüttung erkannt", () => {
