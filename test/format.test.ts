@@ -1,12 +1,38 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { formatEur, formatReport } from "../src/format.js";
+import { formatEur, formatFindings, formatLocations, formatReport } from "../src/format.js";
 import { RateTable } from "../src/fx.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
 import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
 import { ibCash, ibkrXml } from "./helpers/ibkrXml.js";
 import { dividend, interest, trCsv } from "./helpers/trCsv.js";
+
+describe("Ausgabe des Prüfassistenten", () => {
+  test("Schweregrad, Text und Fundstellen, nach Datei gruppiert", () => {
+    const text = formatFindings([
+      { severity: "error", code: "insufficient-position", text: "Verkauf ohne Bestand.", at: [{ line: 3, file: "a.csv" }] },
+      { severity: "warning", code: "unknown-type", text: "Unbekannt.", at: [{ line: 2, file: "a.csv" }, { line: 5, file: "a.csv" }, { line: 4, file: "b.csv" }] },
+      { severity: "info", code: "duplicate", text: "Doppelt.", at: [] },
+    ]);
+    expect(text).toBe(
+      [
+        "Prüfassistent: Buchungen prüfen",
+        "[Fehler]  Verkauf ohne Bestand. (a.csv, Zeile 3)",
+        "[Warnung] Unbekannt. (a.csv, Zeilen 2, 5; b.csv, Zeile 4)",
+        "[Hinweis] Doppelt.",
+      ].join("\n"),
+    );
+  });
+
+  test("ohne Auffälligkeiten eine kurze Zeile", () => {
+    expect(formatFindings([])).toBe("Prüfassistent: keine Auffälligkeiten in den Buchungen.");
+  });
+
+  test("Fundstellen ohne Datei und lange Listen werden gekürzt", () => {
+    expect(formatLocations([1, 2, 3, 4, 5, 6, 7].map((line) => ({ line })))).toBe("Zeilen 1, 2, 3, 4, 5 und 2 weitere");
+  });
+});
 
 describe("Ausgabe", () => {
   test("Euro-Beträge auf Cent gerundet, deutsches Format", () => {

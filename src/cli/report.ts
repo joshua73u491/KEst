@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { formatReport } from "../format.js";
+import { checkBookings, type CheckInput } from "../check.js";
+import { formatFindings, formatReport } from "../format.js";
 import { parseRateFile } from "../fx.js";
-import { addFile, combine, emptyHistory } from "../history.js";
+import { addFile, combine, emptyHistory, filePeriods } from "../history.js";
 import { computeYear, type YearOptions } from "../yearReport.js";
 
 const USAGE =
@@ -51,6 +52,11 @@ try {
     if (interestKz !== "861" && interestKz !== "863") throw new Error(`--ibkr-zinsen erwartet 863 oder 861, nicht „${interestKz}“.`);
     options.brokerInterestKz = interestKz;
   }
+  const checkInput: CheckInput = { data, duplicates, periods: filePeriods(history) };
+  if (options.rates) checkInput.rates = options.rates;
+  if (options.taxSimpleSince) checkInput.taxSimpleSince = options.taxSimpleSince;
+  console.log(formatFindings(checkBookings(checkInput)));
+  console.log("");
   console.log(formatReport(computeYear(data, year, options)));
 } catch (e) {
   console.error(`Auswertung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
