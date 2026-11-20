@@ -5,7 +5,7 @@ import { RateTable } from "../src/fx.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
 import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
-import { ibCash, ibkrXml } from "./helpers/ibkrXml.js";
+import { ibCash, ibkrXml, ibOption, ibOptionBook } from "./helpers/ibkrXml.js";
 import { dividend, interest, trCsv } from "./helpers/trCsv.js";
 
 describe("Ausgabe des Prüfassistenten", () => {
@@ -63,6 +63,22 @@ describe("Ausgabe", () => {
     expect(text).toMatch(/Einbehalten von Trade Republic +1,10 €/);
     // Kennzahlen nur aus der Zeit vor der Umstellung
     expect(text).toMatch(/KZ 861 {2}Zinsen aus Geldeinlagen +0,00 €/);
+  });
+
+  test("Bericht zeigt KZ 857, offene Optionen und Hinweise ohne Zeile", () => {
+    const xml = ibkrXml({
+      trades: [
+        ibOption("SELL", "20260915", "ERF P50", "1", "200"),
+        ibOptionBook("BUY", "20261218", "ERF P50", "1"),
+        ibOption("SELL", "20261201", "ERF C70", "2", "300", { putCall: "C", strike: "70", expiry: "20270115" }),
+      ],
+    });
+    const text = formatReport(computeYear(parseIbkrFlexXml(xml), 2026));
+    expect(text).toContain("KZ 857  Optionen/Futures (Tarif)           200,00 €");
+    expect(text).toContain("Offene Optionen und Futures (Anzahl, Basis)");
+    expect(text).toMatch(/ERF C70 {2}-2 Kontr\. \(Stillhalter\) +300,00 €/);
+    expect(text).toContain("KZ 857 – Die Einkommensteuer auf Einkünfte aus nicht verbrieften Derivaten");
+    expect(text).not.toContain("Zeile 0");
   });
 
   test("Bericht nennt Broker-Zinsen und die gewählte Kennzahl", () => {

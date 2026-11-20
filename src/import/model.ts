@@ -3,8 +3,28 @@
  * die steuerliche Behandlung entscheidet die Jahresauswertung (`src/yearReport.ts`).
  */
 
-/** Steuertopf eines Wertpapiers. */
-export type AssetKind = "security" | "securitizedDerivative" | "crypto";
+/**
+ * Steuertopf eines Wertpapiers. `derivative` = nicht verbrieftes Derivat (Option, Future): eigener Topf,
+ * Tarif und KZ 857 oder wahlweise 27,5 % (Einstellung, siehe `src/derivatives.ts`).
+ */
+export type AssetKind = "security" | "securitizedDerivative" | "crypto" | "derivative";
+
+/** Kontraktdaten eines nicht verbrieften Derivats (IBKR). */
+export interface DerivativeContract {
+  /** eindeutiger Schlüssel des Kontrakts (IBKR conid, sonst Symbol) */
+  contract: string;
+  type: "option" | "future";
+  /** Symbol des Basiswerts, für die Zuordnung der Aktienlieferung bei Ausübung oder Zuteilung */
+  underlying: string;
+  underlyingConid?: string;
+  /** C = Call, P = Put, leer bei Futures */
+  putCall: "C" | "P" | "";
+  /** Ausübungspreis je Stück des Basiswerts, leer bei Futures */
+  strike: string;
+  /** Verfallstag JJJJ-MM-TT, leer wenn unbekannt */
+  expiry: string;
+  multiplier: string;
+}
 
 /** Betrag in einer Fremdwährung, der erst in der Auswertung zum EZB-Referenzkurs umgerechnet wird. */
 export interface ForeignAmount {
@@ -41,6 +61,22 @@ export interface ImportedTrade {
   name: string;
   /** Dateiname, wenn mehrere Dateien zusammengeführt wurden */
   file?: string;
+  /** nur bei `kind: "derivative"` */
+  derivative?: DerivativeContract;
+  /** Angaben des Brokers (IBKR) für die Zuordnung von Ausübung und Zuteilung */
+  symbol?: string;
+  conid?: string;
+  /** Kurs je Stück bzw. Kontrakt laut Broker */
+  price?: string;
+  /** z. B. ExchTrade, BookTrade (Lieferung aus Ausübung, Verfall) */
+  transactionType?: string;
+  /** Eröffnung (O) oder Schließung (C) laut Broker, leer wenn nicht angegeben */
+  openClose?: "O" | "C" | "";
+  /**
+   * Codes laut Broker (IBKR Feld notes), z. B. A = Assignment, Ep = Resulted from an Expired Position, Ex = Exercise.
+   * Legende: https://ibkrguides.com/reportingreference/reportguide/codes_flex.htm
+   */
+  codes?: string[];
 }
 
 export interface ImportedTransfer {

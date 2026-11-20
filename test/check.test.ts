@@ -4,7 +4,7 @@ import { RateTable } from "../src/fx.js";
 import { addFile, combine, emptyHistory, filePeriods, type History } from "../src/history.js";
 import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
-import { ibCash, ibkrXml, ibTrade } from "./helpers/ibkrXml.js";
+import { ibCash, ibkrXml, ibOption, ibOptionBook, ibTrade } from "./helpers/ibkrXml.js";
 import { dividend, trade, trCsv, type TrRow } from "./helpers/trCsv.js";
 
 const tr = (...rows: TrRow[]) => parseTradeRepublicCsv(trCsv(...rows));
@@ -49,6 +49,11 @@ describe("Prüfassistent: Bestände", () => {
       ),
     });
     expect(f.filter((x) => x.code === "insufficient-position")).toEqual([]);
+  });
+
+  test("Stillhalter (Short-Optionen) gelten nicht als Verkauf ohne Bestand", () => {
+    const data = parseIbkrFlexXml(ibkrXml({ trades: [ibOption("SELL", "20260301", "ERF P50", "1", "100"), ibOptionBook("BUY", "20261218", "ERF P50", "1")] }));
+    expect(checkBookings({ data })).toEqual([]);
   });
 
   test("Bestand nahe 0 durch Rundung wird erklärt", () => {

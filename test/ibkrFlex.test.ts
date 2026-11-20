@@ -61,6 +61,9 @@ describe("IBKR-Flex-Query: Trades", () => {
         convert: { currency: "USD", amount: "1000", fees: [{ currency: "USD", amount: "1" }] },
         kind: "security",
         name: "ERFUNDEN US0000000101",
+        symbol: "SYM101",
+        price: "0",
+        transactionType: "ExchTrade",
       },
     ]);
     expect(r.unsupported).toEqual([]);
@@ -90,15 +93,54 @@ describe("IBKR-Flex-Query: Trades", () => {
     ]);
   });
 
-  test("Optionen und Futures werden erkannt und auf Phase 2 verwiesen", () => {
-    const opt = ibTrade("BUY", "20260402", "", "1", "250", { assetCategory: "OPT", symbol: "XYZ 260619C00100000", multiplier: "100" });
-    const fut = ibTrade("SELL", "20260403", "", "1", "5000", { assetCategory: "FUT", symbol: "ESM6" });
+  test("Optionen und Futures werden als nicht verbriefte Derivate mit Kontraktdaten eingelesen", () => {
+    const opt = ibTrade("BUY", "20260402", "", "1", "250", {
+      assetCategory: "OPT",
+      symbol: "XYZ 260619C00100000",
+      conid: "123",
+      underlyingSymbol: "XYZ",
+      underlyingConid: "456",
+      putCall: "C",
+      strike: "100",
+      expiry: "20260619",
+      multiplier: "100",
+      tradePrice: "2.5",
+      openCloseIndicator: "O",
+    });
+    const fut = ibTrade("SELL", "20260403", "", "1", "5000", { assetCategory: "FUT", symbol: "ESM6", conid: "789", putCall: "", strike: "", expiry: "20260619", multiplier: "50", underlyingSymbol: "ES" });
     const r = parseIbkrFlexXml(ibkrXml({ trades: [opt, fut] }));
+    expect(r.unsupported).toEqual([]);
+    expect(r.trades[0]).toMatchObject({
+      kind: "derivative",
+      isin: "",
+      side: "buy",
+      quantity: "1",
+      openClose: "O",
+      price: "2.5",
+      derivative: { contract: "123", type: "option", underlying: "XYZ", underlyingConid: "456", putCall: "C", strike: "100", expiry: "2026-06-19", multiplier: "100" },
+    });
+    expect(r.trades[1]).toMatchObject({ kind: "derivative", side: "sell", derivative: { contract: "789", type: "future", putCall: "", expiry: "2026-06-19" } });
+  });
+
+  test("Codes laut IBKR (Feld notes, durch Semikolon getrennt) werden mitgeführt", () => {
+    const opt = ibTrade("BUY", "20260402", "", "1", "0", {
+      assetCategory: "OPT", symbol: "X P", conid: "1", underlyingSymbol: "X", putCall: "P", strike: "50", expiry: "20260402", multiplier: "100", notes: "A;C",
+    });
+    expect(parseIbkrFlexXml(ibkrXml({ trades: [opt] })).trades[0]?.codes).toEqual(["A", "C"]);
+  });
+
+  test("Option ohne Kontraktdaten (z. B. Feld strike nicht in der Flex Query) wird gemeldet", () => {
+    const opt = ibTrade("BUY", "20260402", "", "1", "250", { assetCategory: "OPT", symbol: "XYZ C", putCall: "C", expiry: "20260619", multiplier: "100" });
+    const r = parseIbkrFlexXml(ibkrXml({ trades: [opt] }));
     expect(r.trades).toEqual([]);
-    expect(r.unsupported.map((u) => [u.line, u.type, u.reason])).toEqual([
-      [5, "Trade/OPT", "Option oder Future XYZ 260619C00100000: wird erst in Phase 2 berechnet. Nicht berechnet."],
-      [6, "Trade/FUT", "Option oder Future ESM6: wird erst in Phase 2 berechnet. Nicht berechnet."],
-    ]);
+    expect(r.unsupported[0]?.reason).toMatch(/Kontraktdaten fehlen: strike, underlyingSymbol/);
+  });
+
+  test("CFDs werden noch nicht berechnet", () => {
+    const cfd = ibTrade("BUY", "20260402", "", "10", "1000", { assetCategory: "CFD", symbol: "ERF.CFD" });
+    const r = parseIbkrFlexXml(ibkrXml({ trades: [cfd] }));
+    expect(r.trades).toEqual([]);
+    expect(r.unsupported[0]?.reason).toBe("CFD ERF.CFD: Differenzkontrakte werden noch nicht berechnet.");
   });
 
   test("Devisentausch wird als nicht berechnet gemeldet", () => {

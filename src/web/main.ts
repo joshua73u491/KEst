@@ -39,7 +39,7 @@ interface State {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
-const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto" } as const;
+const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto", derivative: "Option/Future" } as const;
 const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zinsen" } as const;
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -240,6 +240,7 @@ function applySettingsToControls() {
   const s = state.history.settings;
   $<HTMLInputElement>("since").value = s.taxSimpleSince;
   $<HTMLSelectElement>("ibkrKz").value = s.brokerInterestKz;
+  $<HTMLSelectElement>("derivTreatment").value = s.derivativesTreatment;
   $<HTMLInputElement>("buffer").value = String(s.bufferPct);
 }
 
@@ -316,6 +317,7 @@ function renderEmpty() {
   $("divBlock").hidden = true;
   $("brokerBlock").hidden = true;
   $("kzSetting").hidden = true;
+  $("derivSetting").hidden = true;
   $("copy").onclick = null;
 }
 
@@ -330,6 +332,7 @@ function kzRows(r: YearReport): Array<[string, string, Dec]> {
     ["863", "Dividenden, Wertpapierzinsen", r.kz863],
     ["998", "Anrechenbare Quellensteuer", r.kz998],
     ["861", "Zinsen aus Geldeinlagen (25 %)", r.kz861],
+    ["857", "Optionen und Futures zum Tarif", r.kz857],
   ];
 }
 
@@ -350,7 +353,7 @@ function render() {
 
   let report: YearReport;
   try {
-    const options: YearOptions = { brokerInterestKz: settings.brokerInterestKz };
+    const options: YearOptions = { brokerInterestKz: settings.brokerInterestKz, derivativesTreatment: settings.derivativesTreatment };
     if (settings.taxSimpleSince) options.taxSimpleSince = settings.taxSimpleSince;
     if (state.rates) options.rates = state.rates;
     report = computeYear(data, state.year, options);
@@ -378,6 +381,7 @@ function render() {
           ? ` · ${state.duplicates} ${state.duplicates === 1 ? "doppelte Buchung" : "doppelte Buchungen"} nur einmal gezählt`
           : "");
   $("kzSetting").hidden = !data.interest.some((i) => i.source === "broker");
+  $("derivSetting").hidden = !data.trades.some((t) => t.kind === "derivative");
   $("year").innerHTML = yearsOf(data)
     .map((y) => `<option value="${y}"${y === state.year ? " selected" : ""}>${y}</option>`)
     .join("");
@@ -455,15 +459,22 @@ function render() {
       .join("") +
     `<tr><td></td><td><b>Summe einbehalten</b></td><td></td><td class="num"><b>${formatEur(report.brokerWithheldEur)}</b></td></tr>`;
 
-  $("open").innerHTML = report.openPositions.length
-    ? report.openPositions
-        .map((p) => `<tr><td>${esc(p.isin)}</td><td class="num">${p.quantity.toString()}</td><td class="num">${formatEur(p.avgPriceEur)}</td><td class="num">${formatEur(p.costEur)}</td></tr>`)
-        .join("")
-    : `<tr><td colspan="4" class="empty">Keine offenen Positionen.</td></tr>`;
+  const openRows = [
+    ...report.openPositions.map(
+      (p) => `<tr><td>${esc(p.isin)}</td><td class="num">${p.quantity.toString()}</td><td class="num">${formatEur(p.avgPriceEur)}</td><td class="num">${formatEur(p.costEur)}</td></tr>`,
+    ),
+    // Optionen und Futures: Short (Stillhalter) mit negativer Anzahl, Basis = erhaltene Prämie
+    ...report.openDerivatives.map(
+      (p) =>
+        `<tr><td>${esc(p.symbol)} <small>${p.quantity.lt(0) ? "Stillhalter, Prämie" : "Option/Future"}</small></td><td class="num">${p.quantity.toString()}</td>` +
+        `<td class="num">${formatEur(p.basisEur.div(p.quantity.abs()))}</td><td class="num">${formatEur(p.basisEur)}</td></tr>`,
+    ),
+  ];
+  $("open").innerHTML = openRows.length ? openRows.join("") : `<tr><td colspan="4" class="empty">Keine offenen Positionen.</td></tr>`;
 
   $("todo").hidden = report.notComputed.length === 0;
   $("todoList").innerHTML = report.notComputed
-    .map((n) => `<li>${n.file ? `${esc(n.file)}, ` : ""}Zeile ${n.line}: <code>${esc(n.type)}</code> – ${esc(n.reason)}</li>`)
+    .map((n) => `<li>${n.file ? `${esc(n.file)}, ` : ""}${n.line ? `Zeile ${n.line}: ` : ""}<code>${esc(n.type)}</code> – ${esc(n.reason)}</li>`)
     .join("");
 
   $("copy").onclick = async () => {
@@ -519,6 +530,9 @@ function render() {
     updateSettings({ brokerInterestKz: (e.target as HTMLSelectElement).value === "861" ? "861" : "863" }),
   );
   $<HTMLInputElement>("since").addEventListener("change", (e) => updateSettings({ taxSimpleSince: (e.target as HTMLInputElement).value }));
+  $<HTMLSelectElement>("derivTreatment").addEventListener("change", (e) =>
+    updateSettings({ derivativesTreatment: (e.target as HTMLSelectElement).value === "special" ? "special" : "tariff" }),
+  );
   $("fileList").addEventListener("click", (e) => {
     const id = (e.target as HTMLElement).closest<HTMLElement>("[data-remove]")?.dataset.remove;
     if (!id) return;

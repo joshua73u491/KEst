@@ -38,7 +38,7 @@ describe("Lokale Historie: Dateien hinzufügen", () => {
   });
 
   test("Standard-Einstellungen", () => {
-    expect(emptyHistory().settings).toEqual({ taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10 });
+    expect(emptyHistory().settings).toEqual({ taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff" });
   });
 });
 
@@ -108,7 +108,7 @@ describe("Lokale Historie: mehrere Dateien zusammenführen", () => {
 describe("Backup als JSON-Datei", () => {
   const history = (): History => {
     const h = add(emptyHistory(), "a.csv", trCsv(t1)).history;
-    return { ...h, settings: { taxSimpleSince: "2025-05-12", brokerInterestKz: "861", bufferPct: 20 } };
+    return { ...h, settings: { taxSimpleSince: "2025-05-12", brokerInterestKz: "861", bufferPct: 20, derivativesTreatment: "special" } };
   };
 
   test("exportieren und wiederherstellen ergibt dieselben Daten und Einstellungen", () => {
@@ -134,6 +134,11 @@ describe("Backup als JSON-Datei", () => {
     expect(r.history.files.map((f) => f.name)).toEqual(["b.csv", "a.csv"]);
     expect(r.history.settings).toEqual(backup.settings);
     expect(restoreBackup(r.history, backup, () => `neu-${++n}`)).toMatchObject({ added: 0, skipped: 1 });
+  });
+
+  test("älteres Backup ohne Derivate-Einstellung erhält den vorsichtigen Standard (Tarif)", () => {
+    const old = JSON.stringify({ app: "KESt-Rücklage", format: 1, exportedAt: NOW, files: [], settings: { taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10 } });
+    expect(fromBackup(old).settings.derivativesTreatment).toBe("tariff");
   });
 
   test("Dateien im Backup werden beim Wiederherstellen erneut geprüft", () => {

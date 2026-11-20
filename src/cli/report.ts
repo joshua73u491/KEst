@@ -9,7 +9,7 @@ import { computeYear, type YearOptions } from "../yearReport.js";
 
 const USAGE =
   "Aufruf: npm run report -- <Datei> [weitere Dateien …] [Jahr] [--steuereinfach-seit JJJJ-MM-TT] " +
-  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861]\n" +
+  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861] [--derivate tarif|275]\n" +
   "Dateien: Trade-Republic-CSV oder IBKR-Flex-XML; mehrere werden zusammengeführt, Duplikate zählen nur einmal.";
 
 let positionals: string[] = [];
@@ -17,7 +17,12 @@ let values: Record<string, string | undefined> = {};
 try {
   const parsed = parseArgs({
     allowPositionals: true,
-    options: { "steuereinfach-seit": { type: "string" }, "ezb-kurse": { type: "string" }, "ibkr-zinsen": { type: "string" } },
+    options: {
+      "steuereinfach-seit": { type: "string" },
+      "ezb-kurse": { type: "string" },
+      "ibkr-zinsen": { type: "string" },
+      derivate: { type: "string" },
+    },
   });
   positionals = parsed.positionals;
   values = parsed.values;
@@ -51,6 +56,11 @@ try {
   if (interestKz !== undefined) {
     if (interestKz !== "861" && interestKz !== "863") throw new Error(`--ibkr-zinsen erwartet 863 oder 861, nicht „${interestKz}“.`);
     options.brokerInterestKz = interestKz;
+  }
+  const derivate = values.derivate;
+  if (derivate !== undefined) {
+    if (derivate !== "tarif" && derivate !== "275") throw new Error(`--derivate erwartet tarif oder 275, nicht „${derivate}“.`);
+    options.derivativesTreatment = derivate === "275" ? "special" : "tariff";
   }
   const checkInput: CheckInput = { data, duplicates, periods: filePeriods(history) };
   if (options.rates) checkInput.rates = options.rates;

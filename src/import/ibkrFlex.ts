@@ -1,5 +1,5 @@
 import { dec, ZERO, type Dec } from "../decimal.js";
-import type { DistributionKind, ForeignAmount, ImportedTrade, ImportResult, Unsupported } from "./model.js";
+import type { DerivativeContract, DistributionKind, ForeignAmount, ImportedTrade, ImportResult, Unsupported } from "./model.js";
 import { childrenNamed, parseXml, type XmlElement } from "./xml.js";
 
 /**
@@ -25,8 +25,37 @@ const POSITION_FIELDS = ["assetCategory", "isin", "position", "reportDate"];
 
 /** Wertpapiere im 27,5 %-Topf mit KZ 994/892 */
 const SECURITY_CATEGORIES = new Set(["STK", "FUND", "BOND", "BILL"]);
-/** Nicht verbriefte Derivate: kommen erst in Phase 2 (KZ 857 oder 995 ist eine offene Frage) */
-const DERIVATIVE_CATEGORIES = new Set(["OPT", "FUT", "FOP", "CFD"]);
+/** Nicht verbriefte Derivate: Optionen, Futures und Optionen auf Futures (Tarif und KZ 857 oder 27,5 %, Einstellung) */
+const DERIVATIVE_CATEGORIES = new Set(["OPT", "FUT", "FOP"]);
+
+/** Kontraktdaten laut Flex Query; fehlen sie, wird nichts geschätzt. */
+function contractOf(a: Record<string, string>, category: string): DerivativeContract {
+  const option = category !== "FUT";
+  // Der Verfallstag ist hilfreich, aber nicht nötig: Verfall und Zuteilung erkennt die Auswertung auch an den Codes.
+  const required = option ? ["putCall", "strike", "multiplier", "underlyingSymbol"] : ["multiplier"];
+  const missing = required.filter((f) => (a[f] ?? "").trim() === "");
+  if (missing.length > 0) {
+    throw new RowError(`Kontraktdaten fehlen: ${missing.join(", ")}. Bitte diese Felder in der Flex Query aktivieren.`);
+  }
+  const pc = (a.putCall ?? "").trim().toUpperCase();
+  let expiry = "";
+  if ((a.expiry ?? "").trim() !== "") expiry = parseDate(a.expiry ?? "").date;
+  return {
+    contract: (a.conid ?? "").trim() || (a.symbol ?? "").trim(),
+    type: option ? "option" : "future",
+    underlying: (a.underlyingSymbol ?? "").trim(),
+    ...((a.underlyingConid ?? "").trim() ? { underlyingConid: (a.underlyingConid ?? "").trim() } : {}),
+    putCall: pc === "C" || pc === "P" ? pc : "",
+    strike: option ? dec((a.strike ?? "").trim()).toString() : "",
+    expiry,
+    multiplier: dec((a.multiplier ?? "").trim()).toString(),
+  };
+}
+
+const openCloseOf = (v: string): "O" | "C" | "" => {
+  const s = v.trim().toUpperCase();
+  return s.startsWith("O") ? "O" : s.startsWith("C") ? "C" : "";
+};
 /** Cash-Buchungen ohne Bedeutung für die KESt (Ein-/Auszahlungen, Gebühren, Sollzinsen) */
 const IGNORED_CASH_TYPES = new Set([
   "Deposits/Withdrawals",
@@ -177,19 +206,21 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
     try {
       const when = parseDate(a.tradeDate ?? a.dateTime ?? "", a.tradeTime ?? "");
       affects = isin ? { isin, depot, datetime: when.datetime } : undefined;
-      if (DERIVATIVE_CATEGORIES.has(category)) {
-        flag(r,label, `Option oder Future ${a.symbol || isin || category}: wird erst in Phase 2 berechnet. Nicht berechnet.`);
+      if (category === "CFD") {
+        // Differenzkontrakte haben eigene Regeln (EStR 2000 Rz 6218d ff.), noch nicht umgesetzt.
+        flag(r, label, `CFD ${a.symbol || isin || "?"}: Differenzkontrakte werden noch nicht berechnet.`);
         continue;
       }
+      const derivative = DERIVATIVE_CATEGORIES.has(category) ? contractOf(a, category) : undefined;
       if (category === "CASH") {
         flag(r,label, `Devisentausch ${a.symbol || "?"}: Gewinne und Verluste aus Fremdwährung werden noch nicht berechnet.`);
         continue;
       }
-      if (!SECURITY_CATEGORIES.has(category)) {
+      if (!SECURITY_CATEGORIES.has(category) && !derivative) {
         flag(r,label, `Anlageklasse ${category || "(leer)"} wird noch nicht zugeordnet`, affects);
         continue;
       }
-      if (!isin) throw new RowError("ISIN fehlt. Bitte in der Flex Query das Feld ISIN aktivieren.");
+      if (!isin && !derivative) throw new RowError("ISIN fehlt. Bitte in der Flex Query das Feld ISIN aktivieren.");
       const side = a.buySell === "BUY" ? "buy" : a.buySell === "SELL" ? "sell" : null;
       if (!side) throw new RowError(`Unbekannte Richtung „${a.buySell ?? ""}“`);
       const quantity = num(r, "quantity").abs();
@@ -216,9 +247,16 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
         withheldEur: "0",
         originalCurrency: currency === "EUR" ? "" : currency,
         ...(allEur ? {} : { convert: { currency, amount: amount.toString(), fees } }),
-        kind: "security",
+        kind: derivative ? "derivative" : "security",
         name: a.description ?? "",
         ...src(r),
+        ...(derivative ? { derivative } : {}),
+        ...(a.symbol ? { symbol: a.symbol.trim() } : {}),
+        ...(a.conid ? { conid: a.conid.trim() } : {}),
+        ...((a.tradePrice ?? "").trim() !== "" ? { price: num(r, "tradePrice").toString() } : {}),
+        ...(a.transactionType ? { transactionType: a.transactionType } : {}),
+        ...(a.openCloseIndicator !== undefined ? { openClose: openCloseOf(a.openCloseIndicator) } : {}),
+        ...((a.notes ?? "").trim() !== "" ? { codes: (a.notes ?? "").split(";").map((c) => c.trim()).filter((c) => c !== "") } : {}),
       };
       tradeIds.set(trade, a.transactionID ?? "");
       result.trades.push(trade);

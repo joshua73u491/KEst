@@ -1,6 +1,7 @@
 import { computeBasket275, type Dividend } from "./basket275.js";
 import { InsufficientPositionError, Positions, type Position, type Trade } from "./costBasis.js";
 import { dec, D, ZERO, type Dec } from "./decimal.js";
+import { runDerivatives, type DerivativeInput, type OpenDerivative } from "./derivatives.js";
 import { formatEur } from "./format.js";
 import type { RateSource } from "./fx.js";
 import type { AssetKind, ImportedTrade, ImportResult, Unsupported } from "./import/model.js";
@@ -24,6 +25,11 @@ export interface YearOptions {
    * oder KZ 861 (25 %). Offene Frage an den Steuerberater, siehe docs/HANDOFF.md.
    */
   brokerInterestKz?: "861" | "863";
+  /**
+   * Behandlung nicht verbriefter Derivate (Optionen, Futures bei IBKR): `tariff` = Tarif, KZ 857 (Standard, vorsichtig;
+   * § 27a Abs. 2 Z 7 EStG) oder `special` = 27,5 %, KZ 995/896. Offene Frage an den Steuerberater, siehe docs/HANDOFF.md.
+   */
+  derivativesTreatment?: "tariff" | "special";
 }
 
 export interface RealizedLine {
@@ -88,6 +94,11 @@ export interface YearReport {
   /** Zinsen auf dem Konto eines Brokers (IBKR) im Jahr, enthalten in KZ 863 oder KZ 861 laut Einstellung */
   brokerInterestEur: Dec;
   brokerInterestKz: "861" | "863";
+  /** Einkünfte aus nicht verbrieften Derivaten zum Tarif (Saldo, kann negativ sein); 0 bei Einstellung 27,5 % */
+  kz857: Dec;
+  derivativesTreatment: "tariff" | "special";
+  /** offene Optionen und Futures am Ende der Daten (Short mit negativer Anzahl) */
+  openDerivatives: OpenDerivative[];
   taxableBaseEur: Dec;
   unusedLossEur: Dec;
   tax275Eur: Dec;
@@ -196,22 +207,37 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     }
   };
 
+  // Nicht verbriefte Derivate (Optionen, Futures): eigene Rechnung über alle Jahre (src/derivatives.ts).
+  // Bei Ausübung oder Zuteilung geht die Prämie in die Aktienbuchung ein (adjustments).
+  const derivativesTreatment = options.derivativesTreatment ?? "tariff";
+  const securityTrades = data.trades.filter((t) => t.kind !== "derivative");
+  const derivativeInputs: DerivativeInput[] = data.trades
+    .filter((t) => t.kind === "derivative")
+    .map((t) => {
+      const c = tradeInEur(t);
+      return typeof c === "string" ? { trade: t, failure: c } : { trade: c };
+    });
+  const deriv = runDerivatives(derivativeInputs, securityTrades, derivativesTreatment === "tariff");
+
   // Bei identischem Zeitstempel zuerst Käufe, dann Verkäufe und Überträge (Annahme, siehe README).
   const rank = (side: "buy" | "sell" | "transfer_out") => (side === "buy" ? 0 : 1);
   const events: Array<{ at: string; rank: number; apply: () => void }> = [
-    ...data.trades.map((original) => ({
+    ...securityTrades.map((original) => ({
       at: original.datetime || original.date,
       rank: rank(original.side),
       apply: () => {
         const side = original.side === "buy" ? "BUY" : "SELL";
         const type = original.depot === TR_DEPOT ? `TRADING/${side}` : `Trade/${side}`;
-        const t = tradeInEur(original);
-        if (typeof t === "string") {
+        const converted = tradeInEur(original);
+        if (typeof converted === "string") {
           // Ohne Kurs kein Trade: der Bestand dieser Position ist ab hier unsicher.
-          notComputed.push({ ...at(original), type, reason: t });
+          notComputed.push({ ...at(original), type, reason: converted });
           markBroken(original.depot, original.isin, original.line);
           return;
         }
+        // Prämie aus Ausübung oder Zuteilung: Anschaffungskosten (Kauf) bzw. Veräußerungserlös (Verkauf) anpassen
+        const adj = deriv.adjustments.get(original);
+        const t = adj ? { ...converted, amountEur: dec(converted.amountEur).plus(adj).toString() } : converted;
         const r = applyChecked(t, t, type);
         if (!inYear(t.date)) return;
         feesEur = feesEur.plus(t.feeEur);
@@ -401,10 +427,30 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     kz861 = kz861.plus(amount);
   }
 
+  // Ergebnisse aus nicht verbrieften Derivaten im Jahr (Verfall, Glattstellung, Verkauf)
+  notComputed.push(...deriv.notes);
+  for (const x of deriv.realized) {
+    if (!inYear(x.trade.date)) continue;
+    realized.push({ isin: x.trade.derivative?.contract ?? "", name: x.trade.name || (x.trade.derivative?.contract ?? ""), date: x.trade.date, kind: "derivative", gainEur: x.gainEur });
+  }
+  for (const i of derivativeInputs) if (!i.failure && inYear(i.trade.date)) feesEur = feesEur.plus(i.trade.feeEur || "0");
+
   const gainsOf = (kind: AssetKind) => realized.filter((r) => r.kind === kind).map((r) => r.gainEur);
+  const derivativeGains = gainsOf("derivative");
+  const kz857 = derivativesTreatment === "tariff" ? D.sum(ZERO, ...derivativeGains) : ZERO;
+  if (kz857.gt(0)) {
+    notComputed.push({
+      line: 0,
+      type: "KZ 857",
+      reason:
+        `Die Einkommensteuer auf Einkünfte aus nicht verbrieften Derivaten (KZ 857, ${formatEur(kz857)}, Tarif bis 55 %) rechnet die App noch nicht. ` +
+        `Die Rücklage enthält sie nicht.`,
+    });
+  }
   const basket = computeBasket275({
     realizedGainsEur: gainsOf("security"),
-    derivativeGainsEur: gainsOf("securitizedDerivative"),
+    // Einstellung 27,5 %: nicht verbriefte Derivate laufen wie verbriefte über KZ 995/896 im 27,5 %-Topf
+    derivativeGainsEur: [...gainsOf("securitizedDerivative"), ...(derivativesTreatment === "special" ? derivativeGains : [])],
     cryptoGainsEur: gainsOf("crypto"),
     dividends: basketDividends,
   });
@@ -425,6 +471,9 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     kz861,
     brokerInterestEur,
     brokerInterestKz,
+    kz857,
+    derivativesTreatment,
+    openDerivatives: deriv.open,
     taxableBaseEur: basket.taxableBaseEur,
     unusedLossEur: basket.unusedLossEur,
     tax275Eur: basket.taxEur,
