@@ -65,6 +65,60 @@ export function ibTrade(side: "BUY" | "SELL", date: string, isin: string, quanti
   };
 }
 
+/**
+ * Ein Options-Trade in EUR ohne Kommission (Beträge glatt nachrechenbar). Short Put: SELL zum Öffnen.
+ * Verfall/Ausübung/Zuteilung: BookTrade zum Preis 0, openCloseIndicator C (wie in den Beispieldateien von Portfolio Performance).
+ */
+export function ibOption(
+  side: "BUY" | "SELL",
+  date: string,
+  symbol: string,
+  contracts: string,
+  proceeds: string,
+  extra: Attrs = {},
+): Attrs {
+  return ibTrade(side, date, "", contracts, proceeds, {
+    assetCategory: "OPT",
+    subCategory: extra.putCall ?? "P",
+    symbol,
+    description: symbol,
+    conid: `C-${symbol}`,
+    underlyingSymbol: "ERF",
+    underlyingConid: "U-ERF",
+    putCall: "P",
+    strike: "50",
+    expiry: "20261218",
+    multiplier: "100",
+    currency: "EUR",
+    ibCommission: "0",
+    ibCommissionCurrency: "EUR",
+    tradePrice: String(Number(proceeds) / Number(contracts) / 100),
+    openCloseIndicator: "O",
+    transactionID: `O-${side}-${date}-${symbol}-${contracts}`,
+    ...extra,
+  });
+}
+
+/** Schließung einer Option zum Preis 0 (Verfall, Ausübung oder Zuteilung). */
+export function ibOptionBook(side: "BUY" | "SELL", date: string, symbol: string, contracts: string, extra: Attrs = {}): Attrs {
+  return ibOption(side, date, symbol, contracts, "0", { transactionType: "BookTrade", tradePrice: "0", openCloseIndicator: "C", ...extra });
+}
+
+/** Aktienbuchung aus Ausübung oder Zuteilung: BookTrade zum Ausübungspreis. */
+export function ibDelivery(side: "BUY" | "SELL", date: string, shares: string, price: string, extra: Attrs = {}): Attrs {
+  return ibTrade(side, date, "US0000000777", shares, String(Number(shares) * Number(price)), {
+    symbol: "ERF",
+    conid: "U-ERF",
+    currency: "EUR",
+    ibCommission: "0",
+    ibCommissionCurrency: "EUR",
+    tradePrice: price,
+    transactionType: "BookTrade",
+    transactionID: `D-${side}-${date}-${shares}`,
+    ...extra,
+  });
+}
+
 /** Eine Buchung im Abschnitt CashTransactions (levelOfDetail DETAIL). */
 export function ibCash(type: string, dateTime: string, amount: string, extra: Attrs = {}): Attrs {
   return {

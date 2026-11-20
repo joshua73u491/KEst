@@ -61,6 +61,8 @@ export function formatReport(r: YearReport): string {
     line("KZ 998  Anrechenbare Quellensteuer", r.kz998),
     line("KZ 861  Zinsen aus Geldeinlagen", r.kz861),
     ...(r.brokerInterestEur.isZero() ? [] : [line(`  IBKR-Zinsen, Einstellung KZ ${r.brokerInterestKz}`, r.brokerInterestEur)]),
+    line("KZ 857  Optionen/Futures (Tarif)", r.kz857),
+    ...(r.derivativesTreatment === "special" ? ["        Einstellung: Optionen/Futures mit 27,5 % in KZ 995/896"] : []),
     "",
     line("Bemessungsgrundlage 27,5 %", r.taxableBaseEur),
     line("Steuer 27,5 %", r.tax275Eur),
@@ -103,9 +105,17 @@ export function formatReport(r: YearReport): string {
     "Offene Positionen (Anschaffungskosten)",
     ...r.openPositions.map((p) => line(`${p.isin}  ${p.quantity.toString()} Stk.`, p.costEur)),
   );
+  if (r.openDerivatives.length > 0) {
+    out.push("", "Offene Optionen und Futures (Anzahl, Basis)");
+    out.push(
+      ...r.openDerivatives.map((p) =>
+        detail(`${p.symbol.slice(0, 20)}  ${p.quantity.toString()} Kontr.${p.quantity.lt(0) ? " (Stillhalter)" : ""}`, p.basisEur, ""),
+      ),
+    );
+  }
   if (r.notComputed.length > 0) {
     out.push("", "Nicht berechnet – bitte prüfen");
-    out.push(...r.notComputed.map((n) => `${n.file ? `${n.file}, ` : ""}Zeile ${n.line}: ${n.type} – ${n.reason}`));
+    out.push(...r.notComputed.map((n) => `${n.file ? `${n.file}, ` : ""}${n.line ? `Zeile ${n.line}: ` : ""}${n.type} – ${n.reason}`));
   }
   return out.join("\n");
 }

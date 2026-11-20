@@ -73,7 +73,8 @@ export function checkBookings(input: CheckInput): Finding[] {
   const unknown = new Set<string>(); // Positionen, deren Bestand nach einer übersprungenen Buchung unsicher ist
   const events: Event[] = [];
   const key = (depot: string, isin: string) => `${depot}|${isin}`;
-  for (const t of data.trades) {
+  // Optionen und Futures haben Short-Positionen (Stillhalter); ihre Bestände prüft src/derivatives.ts.
+  for (const t of data.trades.filter((x) => x.kind !== "derivative")) {
     events.push({
       at: t.datetime || t.date,
       rank: t.side === "buy" ? 0 : 1,
@@ -153,7 +154,7 @@ export function checkBookings(input: CheckInput): Finding[] {
   // 2. Doppelte Buchungen: gleicher Trade mehrfach in den Daten (andere oder fehlende Transaktions-ID)
   const sameTrade = new Map<string, typeof data.trades>();
   for (const t of data.trades) {
-    const k = [t.depot, t.isin, t.side, t.datetime || t.date, dec(t.quantity).toString(), t.amountEur || t.convert?.amount || ""].join("|");
+    const k = [t.depot, t.derivative?.contract ?? t.isin, t.side, t.datetime || t.date, dec(t.quantity).toString(), t.amountEur || t.convert?.amount || ""].join("|");
     sameTrade.set(k, [...(sameTrade.get(k) ?? []), t]);
   }
   for (const group of sameTrade.values()) {
