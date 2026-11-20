@@ -79,7 +79,18 @@ function checkFields(section: string, rows: XmlElement[], fields: string[]): voi
   }
 }
 
-export function parseIbkrFlexXml(text: string): ImportResult {
+/** Ein Kontoauszug (FlexStatement) einer Datei, geprüft und mit den Zeilen der drei Abschnitte. */
+export interface FlexStatementData {
+  accountId: string;
+  /** Ende des Zeitraums (JJJJ-MM-TT); der neueste Auszug liefert den Bestandsabgleich */
+  toDate: string;
+  trades: XmlElement[];
+  cash: XmlElement[];
+  positions: XmlElement[];
+}
+
+/** Liest und prüft eine Flex-Query-Datei: Abschnitte, Pflichtfelder, Detailstufe. Wirft deutsche Fehlermeldungen. */
+export function readIbkrFlexStatements(text: string, source?: string): FlexStatementData[] {
   const root = parseXml(text);
   if (root.name !== "FlexQueryResponse") {
     throw new Error(`Die Datei ist keine IBKR-Flex-Query (erwartet wird eine Activity Flex Query im XML-Format). ${HOW_TO}`);
@@ -87,32 +98,59 @@ export function parseIbkrFlexXml(text: string): ImportResult {
   const statements = childrenNamed(root, "FlexStatements").flatMap((s) => childrenNamed(s, "FlexStatement"));
   if (statements.length === 0) throw new Error("Die Flex Query enthält keinen Kontoauszug (FlexStatement).");
 
-  const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], reportedPositions: [], unsupported: [] };
-  const flag = (line: number, type: string, reason: string, affects?: Unsupported["affects"]) =>
-    result.unsupported.push(affects ? { line, type, reason, affects } : { line, type, reason });
-
-  for (const statement of statements) {
-    const depot = `IBKR ${statement.attrs.accountId ?? ""}`.trim();
+  return statements.map((statement) => {
     const missing = SECTIONS.filter((s) => childrenNamed(statement, s).length === 0);
     if (missing.length === 1) throw new Error(`Die Flex Query ist unvollständig: Abschnitt ${missing[0]} fehlt. ${HOW_TO}`);
     if (missing.length > 1) throw new Error(`Die Flex Query ist unvollständig: Abschnitte ${missing.join(", ")} fehlen. ${HOW_TO}`);
-    const section = (name: string, child: string) => childrenNamed(statement, name).flatMap((s) => childrenNamed(s, child));
+    const section = (name: string, child: string) => {
+      const rows = childrenNamed(statement, name).flatMap((s) => childrenNamed(s, child));
+      if (source !== undefined) for (const r of rows) r.file = source;
+      return rows;
+    };
+    const trades = section("Trades", "Trade");
+    const cash = section("CashTransactions", "CashTransaction");
+    const positions = section("OpenPositions", "OpenPosition");
+    checkFields("Trades", trades, TRADE_FIELDS);
+    checkFields("CashTransactions", cash, CASH_FIELDS);
+    checkFields("OpenPositions", positions, POSITION_FIELDS);
+    if (trades.length > 0 && !trades.some((r) => (r.attrs.levelOfDetail ?? "EXECUTION") === "EXECUTION")) {
+      throw new Error("Im Abschnitt Trades fehlen die Einzelausführungen. Bitte in der Flex Query für Trades die Detailstufe „Executions“ wählen.");
+    }
+    let toDate = "";
+    try {
+      toDate = parseDate(statement.attrs.toDate ?? "").date;
+    } catch {
+      // ohne Enddatum: gilt beim Zusammenführen als ältester Auszug
+    }
+    return { accountId: statement.attrs.accountId ?? "", toDate, trades, cash, positions };
+  });
+}
 
-    readTrades(section("Trades", "Trade"), depot, result, flag);
-    readCash(section("CashTransactions", "CashTransaction"), depot, result, flag);
-    readPositions(section("OpenPositions", "OpenPosition"), depot, result, flag);
+export function parseIbkrFlexXml(text: string, source?: string): ImportResult {
+  return processIbkrStatements(readIbkrFlexStatements(text, source));
+}
+
+/** Wertet geprüfte Kontoauszüge aus (beim Zusammenführen mehrerer Dateien bereits ohne Duplikate, siehe `src/history.ts`). */
+export function processIbkrStatements(statements: FlexStatementData[]): ImportResult {
+  const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], reportedPositions: [], unsupported: [] };
+  const flag: Flag = (el, type, reason, affects) =>
+    result.unsupported.push({ line: el.line, type, reason, ...(affects ? { affects } : {}), ...src(el) });
+  for (const st of statements) {
+    const depot = `IBKR ${st.accountId}`.trim();
+    readTrades(st.trades, depot, result, flag);
+    readCash(st.cash, depot, result, flag);
+    readPositions(st.positions, depot, result, flag);
   }
   return result;
 }
 
-type Flag = (line: number, type: string, reason: string, affects?: Unsupported["affects"]) => void;
+/** Herkunft eines Elements für Hinweise und Buchungen */
+const src = (el: XmlElement) => (el.file === undefined ? {} : { file: el.file });
+
+type Flag = (el: XmlElement, type: string, reason: string, affects?: Unsupported["affects"]) => void;
 
 function readTrades(rows: XmlElement[], depot: string, result: ImportResult, flag: Flag): void {
-  checkFields("Trades", rows, TRADE_FIELDS);
   const executions = rows.filter((r) => (r.attrs.levelOfDetail ?? "EXECUTION") === "EXECUTION");
-  if (rows.length > 0 && executions.length === 0) {
-    throw new Error("Im Abschnitt Trades fehlen die Einzelausführungen. Bitte in der Flex Query für Trades die Detailstufe „Executions“ wählen.");
-  }
   const isCancel = (r: XmlElement) => r.attrs.transactionType === "TradeCancel" || (r.attrs.buySell ?? "").includes("(Ca.)");
   const fundsNoted = new Set<string>();
   const bondsNoted = new Set<string>();
@@ -130,15 +168,15 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
       const when = parseDate(a.tradeDate ?? a.dateTime ?? "", a.tradeTime ?? "");
       affects = isin ? { isin, depot, datetime: when.datetime } : undefined;
       if (DERIVATIVE_CATEGORIES.has(category)) {
-        flag(r.line, label, `Option oder Future ${a.symbol || isin || category}: wird erst in Phase 2 berechnet. Nicht berechnet.`);
+        flag(r,label, `Option oder Future ${a.symbol || isin || category}: wird erst in Phase 2 berechnet. Nicht berechnet.`);
         continue;
       }
       if (category === "CASH") {
-        flag(r.line, label, `Devisentausch ${a.symbol || "?"}: Gewinne und Verluste aus Fremdwährung werden noch nicht berechnet.`);
+        flag(r,label, `Devisentausch ${a.symbol || "?"}: Gewinne und Verluste aus Fremdwährung werden noch nicht berechnet.`);
         continue;
       }
       if (!SECURITY_CATEGORIES.has(category)) {
-        flag(r.line, label, `Anlageklasse ${category || "(leer)"} wird noch nicht zugeordnet`, affects);
+        flag(r,label, `Anlageklasse ${category || "(leer)"} wird noch nicht zugeordnet`, affects);
         continue;
       }
       if (!isin) throw new RowError("ISIN fehlt. Bitte in der Flex Query das Feld ISIN aktivieren.");
@@ -170,20 +208,21 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
         ...(allEur ? {} : { convert: { currency, amount: amount.toString(), fees } }),
         kind: "security",
         name: a.description ?? "",
+        ...src(r),
       };
       tradeIds.set(trade, a.transactionID ?? "");
       result.trades.push(trade);
       if ((a.subCategory === "ETF" || category === "FUND") && !fundsNoted.has(isin)) {
         fundsNoted.add(isin);
-        flag(r.line, label, `Fonds/ETF ${isin}: ausschüttungsgleiche Erträge (KZ 937) und Meldefonds-Status werden noch nicht berechnet`);
+        flag(r,label, `Fonds/ETF ${isin}: ausschüttungsgleiche Erträge (KZ 937) und Meldefonds-Status werden noch nicht berechnet`);
       }
       if ((category === "BOND" || category === "BILL") && !bondsNoted.has(isin)) {
         bondsNoted.add(isin);
-        flag(r.line, label, `Anleihe ${isin}: Stückzinsen werden noch nicht berechnet`);
+        flag(r,label, `Anleihe ${isin}: Stückzinsen werden noch nicht berechnet`);
       }
     } catch (e) {
       if (!(e instanceof RowError)) throw e;
-      flag(r.line, label, e.message, affects);
+      flag(r,label, e.message, affects);
     }
   }
 
@@ -203,7 +242,7 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
     }
     const isin = (r.attrs.isin ?? "").trim();
     flag(
-      r.line,
+      r,
       `Trade/${r.attrs.assetCategory ?? "?"}`,
       `Storno einer Ausführung ohne passende ursprüngliche Ausführung (origTransactionID ${orig || "fehlt"}). Nicht berechnet; spätere Verkäufe dieser Position ebenfalls nicht.`,
       isin ? { isin, depot, datetime } : undefined,
@@ -212,10 +251,11 @@ function readTrades(rows: XmlElement[], depot: string, result: ImportResult, fla
 }
 
 function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag: Flag): void {
-  checkFields("CashTransactions", rows, CASH_FIELDS);
   interface Group {
-    line: number;
-    whtLine: number;
+    /** erste Dividendenzeile (für Zeile und Datei) */
+    el: XmlElement;
+    /** erste Quellensteuerzeile */
+    whtEl: XmlElement;
     isin: string;
     name: string;
     currency: string;
@@ -244,12 +284,12 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
         const key = `${isin}|${currency}|${when.date}`;
         let g = groups.get(key);
         if (!g) {
-          g = { line: r.line, whtLine: r.line, isin, name: a.symbol || isin, currency, date: when.date, datetime: when.datetime, kind: "stock", gross: ZERO, withheld: ZERO, hasDividend: false };
+          g = { el: r, whtEl: r, isin, name: a.symbol || isin, currency, date: when.date, datetime: when.datetime, kind: "stock", gross: ZERO, withheld: ZERO, hasDividend: false };
           groups.set(key, g);
         }
         if (type === "Dividends") {
           if (!g.hasDividend) {
-            g.line = r.line;
+            g.el = r;
             g.datetime = when.datetime;
           }
           g.hasDividend = true;
@@ -272,21 +312,22 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
           withheldEur: "0",
           isin: "",
           ...(currency === "EUR" ? {} : { convert: { currency, amount } }),
+          ...src(r),
         });
         continue;
       }
       if (type === "Payment In Lieu Of Dividends") {
-        flag(r.line, label, "Ersatzzahlung für eine Dividende (Payment In Lieu Of Dividends): wird noch nicht berechnet.");
+        flag(r,label, "Ersatzzahlung für eine Dividende (Payment In Lieu Of Dividends): wird noch nicht berechnet.");
         continue;
       }
       if (type === "Bond Interest Received" || type === "Bond Interest Paid") {
-        flag(r.line, label, `Anleihezinsen (${type}): werden noch nicht berechnet.`);
+        flag(r,label, `Anleihezinsen (${type}): werden noch nicht berechnet.`);
         continue;
       }
-      flag(r.line, label, "Unbekannter Buchungstyp");
+      flag(r,label, "Unbekannter Buchungstyp");
     } catch (e) {
       if (!(e instanceof RowError)) throw e;
-      flag(r.line, label, e.message);
+      flag(r,label, e.message);
     }
   }
 
@@ -294,7 +335,7 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
     if (!g.hasDividend) {
       if (!g.withheld.isZero()) {
         flag(
-          g.whtLine,
+          g.whtEl,
           "CashTransaction/Withholding Tax",
           `Quellensteuer von ${g.isin} am ${g.date} (${g.withheld.negated().toString()} ${g.currency}) ohne Dividende am selben Zahltag. Nicht berechnet, bitte prüfen.`,
         );
@@ -303,7 +344,7 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
     }
     if (g.gross.lte(0)) {
       flag(
-        g.line,
+        g.el,
         "CashTransaction/Dividends",
         `Dividende von ${g.isin} am ${g.date}: Summe nach Korrekturen ${g.gross.toString()} ${g.currency}. Nicht berechnet, bitte prüfen.`,
       );
@@ -311,7 +352,8 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
     }
     const eur = g.currency === "EUR";
     result.dividends.push({
-      line: g.line,
+      line: g.el.line,
+      ...src(g.el),
       isin: g.isin,
       depot,
       date: g.date,
@@ -329,7 +371,6 @@ function readCash(rows: XmlElement[], depot: string, result: ImportResult, flag:
 }
 
 function readPositions(rows: XmlElement[], depot: string, result: ImportResult, flag: Flag): void {
-  checkFields("OpenPositions", rows, POSITION_FIELDS);
   for (const r of rows) {
     const a = r.attrs;
     if ((a.levelOfDetail ?? "SUMMARY") !== "SUMMARY") continue;
@@ -341,10 +382,11 @@ function readPositions(rows: XmlElement[], depot: string, result: ImportResult, 
         depot,
         quantity: num(r, "position").toString(),
         date: parseDate(a.reportDate ?? "").date,
+        ...src(r),
       });
     } catch (e) {
       if (!(e instanceof RowError)) throw e;
-      flag(r.line, "OpenPosition", e.message);
+      flag(r,"OpenPosition", e.message);
     }
   }
 }

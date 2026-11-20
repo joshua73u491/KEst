@@ -459,6 +459,12 @@ describe("Jahresauswertung: IBKR (Flex Query)", () => {
     ]);
   });
 
+  test("Hinweise der Auswertung nennen die Datei, wenn sie bekannt ist", () => {
+    const data = parseIbkrFlexXml(ibkrXml({ trades: [ibTrade("BUY", "20260303", "US0000000101", "10", "1000.00")], positions: [ibPosition("US0000000999", "3")] }), "q.xml");
+    const r = computeYear(data, 2026, { rates });
+    expect(r.notComputed.map((x) => x.file)).toEqual(["q.xml", "q.xml"]);
+  });
+
   test("„steuereinfach seit“ gilt nur für Trade Republic, nicht für IBKR", () => {
     const r = run({ trades: [buy, sell] }, { taxSimpleSince: "2026-01-01" });
     expect(r.kz994.toString()).toBe("80");

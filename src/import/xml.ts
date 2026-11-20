@@ -8,6 +8,8 @@ export interface XmlElement {
   children: XmlElement[];
   /** Zeile des öffnenden Tags (erste Zeile = 1) */
   line: number;
+  /** Dateiname, von Importen gesetzt, wenn mehrere Dateien zusammengeführt werden */
+  file?: string;
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };

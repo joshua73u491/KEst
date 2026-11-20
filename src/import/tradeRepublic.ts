@@ -116,20 +116,49 @@ function dateOf(row: Record<string, string>): string {
   return date;
 }
 
-export function parseTradeRepublicCsv(text: string): ImportResult {
+/** Eine Zeile des Exports mit ihrer Herkunft (Zeile und Datei), damit Hinweise auch bei mehreren Dateien eindeutig sind. */
+export interface TrSourceRow {
+  row: Record<string, string>;
+  line: number;
+  source?: string;
+}
+
+/** Liest die Zeilen eines Trade-Republic-Exports und prüft Kopfzeile und Inhalt. */
+export function readTradeRepublicRows(text: string, source?: string): TrSourceRow[] {
   const table = parseCsvTable(text, checkHeader);
   if (table.rows.length === 0) throw new Error(`Die Datei enthält keine Buchungen. ${HOW_TO_EXPORT}`);
-  const rows = table.rows.map((row, i) => ({ row, line: i + 2 }));
-  rows.sort((a, b) => (a.row.datetime ?? "").localeCompare(b.row.datetime ?? ""));
+  return table.rows.map((row, i) => (source === undefined ? { row, line: i + 2 } : { row, line: i + 2, source }));
+}
+
+export function parseTradeRepublicCsv(text: string, source?: string): ImportResult {
+  return processTradeRepublicRows(readTradeRepublicRows(text, source));
+}
+
+/**
+ * Wertet Zeilen aus einem oder mehreren Exporten aus (bereits ohne Duplikate, siehe `src/history.ts`).
+ * Stornos werden so auch über Dateigrenzen hinweg mit der ursprünglichen Buchung verrechnet.
+ */
+export function processTradeRepublicRows(input: TrSourceRow[]): ImportResult {
+  const rows = [...input].sort((a, b) => (a.row.datetime ?? "").localeCompare(b.row.datetime ?? ""));
 
   const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], reportedPositions: [], unsupported: [] };
+  /** Datei der gerade verarbeiteten Zeile; wird an Hinweise und Buchungen gehängt */
+  let currentSource: string | undefined;
   const flag = (line: number, type: string, reason: string, affects?: Unsupported["affects"]) =>
-    result.unsupported.push(affects ? { line, type, reason, affects } : { line, type, reason });
+    result.unsupported.push({
+      line,
+      type,
+      reason,
+      ...(affects ? { affects } : {}),
+      ...(currentSource === undefined ? {} : { file: currentSource }),
+    });
   const fundsNoted = new Set<string>();
   /** Stornos (negativer Betrag), werden nach dem Einlesen mit der ursprünglichen Ausschüttung verrechnet */
   const reversals: Array<{ dividend: ImportedDividend; label: string }> = [];
 
-  for (const { row, line } of rows) {
+  for (const { row, line, source } of rows) {
+    currentSource = source;
+    const tag = source === undefined ? {} : { file: source };
     const category = row.category ?? "";
     const type = row.type ?? "";
     const label = `${category}/${type}`;
@@ -150,6 +179,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
               amountEur: num(row, "amount").toString(),
               withheldEur: withheldOf(row),
               isin: symbol.trim(),
+              ...tag,
             });
           continue;
         }
@@ -182,6 +212,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
             originalAmount: originalCurrency !== "" && (row.original_amount ?? "").trim() !== "" ? num(row, "original_amount").toString() : "",
             withheldOriginal: "",
             brokerFxRate: originalCurrency !== "" && (row.fx_rate ?? "").trim() !== "" ? num(row, "fx_rate").toString() : "",
+            ...tag,
           };
           if (gross.lt(0)) reversals.push({ dividend: entry, label });
           else result.dividends.push(entry);
@@ -198,7 +229,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
       if (category === "DELIVERY" && type === "FREE_DELIVERY" && kind) {
         const quantity = num(row, "shares").abs();
         if (quantity.isZero()) throw new RowError("Stückzahl 0");
-        result.transfersOut.push({ isin, depot: DEPOT, date: dateOf(row), datetime: row.datetime ?? "", quantity: quantity.toString(), kind, line });
+        result.transfersOut.push({ isin, depot: DEPOT, date: dateOf(row), datetime: row.datetime ?? "", quantity: quantity.toString(), kind, line, ...tag });
         continue;
       }
 
@@ -227,6 +258,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
           originalCurrency: originalCurrencyOf(row),
           kind,
           name: row.name ?? "",
+          ...tag,
         };
         result.trades.push(trade);
         if (FUND_CLASSES.has(assetClass) && !fundsNoted.has(isin)) {
@@ -250,6 +282,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
   // Storno: hebt die frühere Ausschüttung derselben ISIN auf, die es genau umkehrt (Betrag und Steuer mit
   // umgekehrtem Vorzeichen). Ohne passendes Gegenstück wird nichts verrechnet, sondern gemeldet.
   for (const { dividend: rev, label } of reversals) {
+    currentSource = rev.file;
     const i = result.dividends.findIndex(
       (d) =>
         d.isin === rev.isin &&

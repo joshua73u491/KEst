@@ -2,25 +2,29 @@ import sampleCsv from "../../test/fixtures/tr-beispiel.csv";
 import { dec, D, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
 import { parseRateFile, type RateTable } from "../fx.js";
+import { addFile, combine, emptyHistory, fromBackup, removeFile, restoreBackup, toBackup, type History } from "../history.js";
 import type { ImportResult } from "../import/model.js";
-import type { Broker } from "../import/readAny.js";
+import { parseExport } from "../import/readAny.js";
 import { reserveTarget } from "../reserve.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
-import { readExport } from "./readExport.js";
+import { clearHistory, loadHistory, saveHistory } from "./storage.js";
 
 interface State {
+  /** alle gespeicherten Dateien und Einstellungen */
+  history: History;
+  /** gespeicherte Daten oder die Beispieldaten anzeigen */
+  mode: "history" | "sample";
   data: ImportResult | null;
-  broker: Broker | "";
-  /** Kennzahl für IBKR-Zinsen (Einstellung, offene Frage an den Steuerberater) */
-  brokerInterestKz: "863" | "861";
-  source: string;
-  isSample: boolean;
+  /** Buchungen, die in mehreren Dateien vorkamen */
+  duplicates: number;
+  /** false, wenn der Browser nicht speichern kann (z. B. privates Fenster) */
+  storageOk: boolean;
+  storageError: string;
+  /** kurze Rückmeldung zur letzten Aktion */
+  notice: string;
   year: number;
-  bufferPct: number;
-  /** JJJJ-MM-TT, ab dem Trade Republic die KESt abzieht; leer = nicht steuereinfach */
-  taxSimpleSince: string;
-  /** EZB-Referenzkurse für Dividenden in Fremdwährung */
+  /** EZB-Referenzkurse für Beträge in Fremdwährung */
   rates: RateTable | null;
   /** Stand des Kursabrufs für die Anzeige; leer, wenn keine Kurse gebraucht werden */
   ratesStatus: string;
@@ -33,29 +37,31 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto" } as const;
 const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zinsen" } as const;
+const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const today = () => new Date().toISOString().slice(0, 10);
 
 const state: State = {
+  history: emptyHistory(),
+  mode: "sample",
   data: null,
-  broker: "",
-  brokerInterestKz: "863",
-  source: "",
-  isSample: true,
-  year: 2026,
-  bufferPct: 10,
-  taxSimpleSince: "",
+  duplicates: 0,
+  storageOk: true,
+  storageError: "",
+  notice: "",
+  year: new Date().getFullYear(),
   rates: null,
   ratesStatus: "",
   ratesMissing: false,
   error: "",
 };
-/** Zählt Ladevorgänge, damit ein später eintreffender Kursabruf keine neuere Datei überschreibt. */
+/** Zählt Ladevorgänge, damit ein später eintreffender Kursabruf keine neueren Daten überschreibt. */
 let loadId = 0;
 
-/** Holt die EZB-Kurse, die die geladene Datei braucht. Ohne Fremdwährungs-Dividenden wird nichts abgerufen. */
-function loadRates(data: ImportResult) {
+/** Holt die EZB-Kurse, die die Daten brauchen. Ohne Beträge in Fremdwährung wird nichts abgerufen. */
+function loadRates(data: ImportResult | null) {
   const id = ++loadId;
   state.rates = null;
-  const need = ratesNeeded(data);
+  const need = data ? ratesNeeded(data) : null;
   if (!need) {
     state.ratesStatus = "";
     state.ratesMissing = false;
@@ -89,26 +95,67 @@ function yearsOf(data: ImportResult): number[] {
   return [...ys].sort((a, b) => b - a);
 }
 
-function load(text: string, source: string, isSample: boolean) {
-  const r = readExport(text);
-  state.source = source;
-  state.isSample = isSample;
-  if (r.ok) {
-    state.data = r.data;
-    state.broker = r.broker;
-    state.error = "";
-    state.year = yearsOf(r.data)[0] ?? state.year;
-    loadRates(r.data);
-  } else {
-    // Keine alten Zahlen neben einer neuen Datei stehen lassen.
+/** Berechnet die angezeigten Daten neu: Beispieldaten oder alle gespeicherten Dateien zusammengeführt. */
+function refresh() {
+  try {
+    if (state.mode === "sample") {
+      state.data = parseExport(sampleCsv).data;
+      state.duplicates = 0;
+    } else if (state.history.files.length === 0) {
+      state.data = null;
+      state.duplicates = 0;
+    } else {
+      const c = combine(state.history);
+      state.data = c.data;
+      state.duplicates = c.duplicates;
+    }
+  } catch (e) {
     state.data = null;
-    state.error = r.message;
-    loadId++;
-    state.rates = null;
-    state.ratesStatus = "";
-    state.ratesMissing = false;
+    state.error = `Die gespeicherten Daten konnten nicht ausgewertet werden: ${e instanceof Error ? e.message : String(e)}`;
   }
+  if (state.data) {
+    const years = yearsOf(state.data);
+    if (!years.includes(state.year)) state.year = years[0] ?? state.year;
+  }
+  loadRates(state.data);
   render();
+}
+
+/** Speichert die Historie im Browser. Klappt das nicht, bleibt die App benutzbar und weist auf das Backup hin. */
+function persist() {
+  if (!state.storageOk) return;
+  saveHistory(state.history).catch((e: unknown) => {
+    state.storageOk = false;
+    state.storageError = e instanceof Error ? e.message : String(e);
+    render();
+  });
+}
+
+function addText(name: string, text: string) {
+  try {
+    const r = addFile(state.history, name, text, new Date().toISOString(), newId());
+    state.error = "";
+    state.notice = r.added ? `„${name}“ gespeichert (${r.broker}).` : `„${name}“ ist bereits gespeichert, nichts geändert.`;
+    state.history = r.history;
+    state.mode = "history";
+    if (r.added) persist();
+    refresh();
+  } catch (e) {
+    // Die gespeicherten Daten bleiben unverändert; die fehlerhafte Datei wird nicht übernommen.
+    state.notice = "";
+    state.error = `Die Datei „${name}“ konnte nicht gelesen werden: ${e instanceof Error ? e.message : String(e)}`;
+    render();
+  }
+}
+
+function readFile(file: File) {
+  file.text().then(
+    (t) => addText(file.name, t),
+    () => {
+      state.error = `Die Datei „${file.name}“ konnte nicht geöffnet werden. Bitte wähle sie noch einmal aus.`;
+      render();
+    },
+  );
 }
 
 function readRateFile(file: File) {
@@ -131,22 +178,100 @@ function readRateFile(file: File) {
   );
 }
 
-function fail(message: string) {
-  state.data = null;
-  state.error = message;
+function saveBackup() {
+  const blob = new Blob([toBackup(state.history, new Date().toISOString())], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `kest-ruecklage-backup-${today()}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  state.notice = "Backup gespeichert. Bewahre die Datei sicher auf, sie enthält deine vollständigen Exporte.";
   render();
+}
+
+function readBackup(file: File) {
+  file.text().then(
+    (text) => {
+      try {
+        const r = restoreBackup(state.history, fromBackup(text), newId);
+        state.history = r.history;
+        state.mode = "history";
+        state.error = "";
+        state.notice = `Backup geladen: ${r.added} ${r.added === 1 ? "Datei" : "Dateien"} ergänzt, ${r.skipped} bereits vorhanden. Einstellungen aus dem Backup übernommen.`;
+        applySettingsToControls();
+        persist();
+        refresh();
+      } catch (e) {
+        state.error = e instanceof Error ? e.message : String(e);
+        render();
+      }
+    },
+    () => {
+      state.error = "Die Backup-Datei konnte nicht geöffnet werden.";
+      render();
+    },
+  );
+}
+
+function clearAll() {
+  const ok = window.confirm(
+    "Alle gespeicherten Dateien und Einstellungen in diesem Browser löschen? Das lässt sich nicht rückgängig machen. Sichere vorher ein Backup, wenn du die Daten noch brauchst.",
+  );
+  if (!ok) return;
+  state.history = emptyHistory();
+  state.mode = "history";
+  state.notice = "Alle gespeicherten Daten in diesem Browser wurden gelöscht.";
+  applySettingsToControls();
+  if (state.storageOk) clearHistory().catch(() => undefined);
+  refresh();
+}
+
+function applySettingsToControls() {
+  const s = state.history.settings;
+  $<HTMLInputElement>("since").value = s.taxSimpleSince;
+  $<HTMLSelectElement>("ibkrKz").value = s.brokerInterestKz;
+  $<HTMLInputElement>("buffer").value = String(s.bufferPct);
+}
+
+function updateSettings(change: Partial<History["settings"]>) {
+  state.history = { ...state.history, settings: { ...state.history.settings, ...change } };
+  persist();
+  render();
+}
+
+function renderStore() {
+  const files = state.history.files;
+  $("storeNote").textContent = state.storageOk
+    ? "Deine Daten liegen nur in diesem Browser auf diesem Gerät, nicht auf einem Server. Löschst du die Browserdaten oder wechselst du das Gerät, sind sie weg: Sichere regelmäßig ein Backup."
+    : `Speichern ist in diesem Browser nicht möglich (${state.storageError}). Deine Daten gehen beim Schließen der Seite verloren: Sichere ein Backup.`;
+  $("storeNote").classList.toggle("warn", !state.storageOk);
+  $("fileList").innerHTML = files.length
+    ? files
+        .map(
+          (f) =>
+            `<li><span><b>${esc(f.name)}</b> <small>${esc(f.broker)} · gespeichert am ${esc(f.importedAt.slice(0, 10))}</small></span>` +
+            `<button class="link" type="button" data-remove="${esc(f.id)}">Entfernen</button></li>`,
+        )
+        .join("")
+    : `<li class="empty">Noch keine Datei gespeichert.</li>`;
+  $("backupSave").toggleAttribute("disabled", files.length === 0);
+  $("clearAll").toggleAttribute("disabled", files.length === 0);
+  $("mine").hidden = !(state.mode === "sample" && files.length > 0);
+  $("notice").hidden = !state.notice;
+  $("notice").textContent = state.notice;
 }
 
 /** Zeigt statt der Auswertung einen klaren Leerzustand; die Seite bleibt bedienbar. */
 function renderEmpty() {
-  $("source").innerHTML = state.source
-    ? `Nicht ausgewertet: <b>${esc(state.source)}</b>`
-    : "Noch keine Datei geladen.";
+  $("source").innerHTML = "Noch keine Datei geladen.";
   $("year").innerHTML = "";
   $("yearLabel").textContent = "–";
   $("reserve").textContent = "–";
-  $("reserveNote").textContent = "Keine Auswertung. Wähle deinen Trade-Republic-Export oder sieh dir die Beispieldaten an.";
-  $("bufferOut").textContent = `${state.bufferPct} %`;
+  $("reserveNote").textContent = "Keine Auswertung. Wähle deinen Export (Trade Republic oder IBKR) oder sieh dir die Beispieldaten an.";
+  $("bufferOut").textContent = `${state.history.settings.bufferPct} %`;
   $("figs").innerHTML = "";
   $("bars").innerHTML = `<li class="empty">Keine Daten.</li>`;
   $("kz").innerHTML = `<tr><td colspan="3" class="empty">Keine Daten.</td></tr>`;
@@ -174,11 +299,13 @@ function kzRows(r: YearReport): Array<[string, string, Dec]> {
 }
 
 function render() {
+  const settings = state.history.settings;
   $("error").hidden = !state.error;
   $("error").textContent = state.error;
   $("ratesBox").hidden = !state.ratesStatus;
   $("ratesStatus").textContent = state.ratesStatus;
   $("rateFileBtn").hidden = !state.ratesMissing;
+  renderStore();
   const data = state.data;
   if (!data) {
     renderEmpty();
@@ -187,13 +314,15 @@ function render() {
 
   let report: YearReport;
   try {
-    const options: YearOptions = {};
-    if (state.taxSimpleSince) options.taxSimpleSince = state.taxSimpleSince;
+    const options: YearOptions = { brokerInterestKz: settings.brokerInterestKz };
+    if (settings.taxSimpleSince) options.taxSimpleSince = settings.taxSimpleSince;
     if (state.rates) options.rates = state.rates;
-    options.brokerInterestKz = state.brokerInterestKz;
     report = computeYear(data, state.year, options);
   } catch (e) {
-    fail(`Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
+    state.error = `Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`;
+    $("error").hidden = false;
+    $("error").textContent = state.error;
+    renderEmpty();
     return;
   }
   const tax = report.tax275Eur.plus(report.tax25Eur);
@@ -201,12 +330,17 @@ function render() {
     basket275TaxEur: report.tax275Eur,
     bankInterestTaxEur: report.tax25Eur,
     tariffExtraTaxEur: 0,
-    bufferRate: dec(state.bufferPct).div(100),
+    bufferRate: dec(settings.bufferPct).div(100),
   });
 
-  $("source").innerHTML = state.isSample
-    ? "Beispieldaten geladen. Zieh deinen eigenen Export hierher, um deine Zahlen zu sehen."
-    : `Geladen: <b>${esc(state.source)}</b> · ${esc(state.broker)} · ${data.trades.length} Trades`;
+  const files = state.history.files.length;
+  $("source").innerHTML =
+    state.mode === "sample"
+      ? "Beispieldaten. Zieh deinen eigenen Export hierher, um deine Zahlen zu sehen."
+      : `Ausgewertet: <b>${files} ${files === 1 ? "gespeicherte Datei" : "gespeicherte Dateien"}</b> · ${data.trades.length} Trades` +
+        (state.duplicates > 0
+          ? ` · ${state.duplicates} ${state.duplicates === 1 ? "doppelte Buchung" : "doppelte Buchungen"} nur einmal gezählt`
+          : "");
   $("kzSetting").hidden = !data.interest.some((i) => i.source === "broker");
   $("year").innerHTML = yearsOf(data)
     .map((y) => `<option value="${y}"${y === state.year ? " selected" : ""}>${y}</option>`)
@@ -219,14 +353,14 @@ function render() {
       ? report.unusedLossEur.gt(0)
         ? `Keine Steuer: ${formatEur(report.unusedLossEur)} Verlust bleibt übrig. Er verfällt am Jahresende.`
         : "Noch keine steuerpflichtigen Erträge in diesem Jahr."
-      : `${formatEur(tax)} Steuer plus ${state.bufferPct} % Sicherheitspuffer.`) +
+      : `${formatEur(tax)} Steuer plus ${settings.bufferPct} % Sicherheitspuffer.`) +
     (report.taxSimpleSince
       ? ` Erträge ab ${report.taxSimpleSince} hat Trade Republic selbst versteuert; sie zählen hier nicht.`
       : "") +
     (open > 0
       ? ` Achtung: ${open} ${open === 1 ? "Hinweis" : "Hinweise"} unten unter „Nicht berechnet“, das Ergebnis kann unvollständig sein.`
       : "");
-  $("bufferOut").textContent = `${state.bufferPct} %`;
+  $("bufferOut").textContent = `${settings.bufferPct} %`;
 
   const figs: Array<[string, Dec]> = [
     ["Steuer 27,5 %", report.tax275Eur],
@@ -293,7 +427,7 @@ function render() {
 
   $("todo").hidden = report.notComputed.length === 0;
   $("todoList").innerHTML = report.notComputed
-    .map((n) => `<li>Zeile ${n.line}: <code>${esc(n.type)}</code> – ${esc(n.reason)}</li>`)
+    .map((n) => `<li>${n.file ? `${esc(n.file)}, ` : ""}Zeile ${n.line}: <code>${esc(n.type)}</code> – ${esc(n.reason)}</li>`)
     .join("");
 
   $("copy").onclick = async () => {
@@ -311,22 +445,11 @@ function render() {
   };
 }
 
-function readFile(file: File) {
-  file.text().then(
-    (t) => load(t, file.name, false),
-    () => {
-      state.source = file.name;
-      state.isSample = false;
-      fail("Die Datei konnte nicht geöffnet werden. Bitte wähle sie noch einmal aus.");
-    },
-  );
-}
-
 {
   const drop = $("drop");
   const input = $<HTMLInputElement>("file");
   input.addEventListener("change", () => {
-    if (input.files?.[0]) readFile(input.files[0]);
+    for (const f of input.files ?? []) readFile(f);
     input.value = ""; // dieselbe Datei nach einer Korrektur erneut wählbar
   });
   drop.addEventListener("dragover", (e) => {
@@ -338,37 +461,67 @@ function readFile(file: File) {
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => {
     e.preventDefault();
-    const f = e.dataTransfer?.files?.[0];
-    if (f) readFile(f);
+    for (const f of e.dataTransfer?.files ?? []) readFile(f);
   });
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
     e.stopPropagation();
     drop.classList.remove("over");
-    const f = e.dataTransfer?.files?.[0];
-    if (f) readFile(f);
+    for (const f of e.dataTransfer?.files ?? []) readFile(f);
   });
   $<HTMLSelectElement>("year").addEventListener("change", (e) => {
     state.year = Number((e.target as HTMLSelectElement).value);
     render();
   });
-  $<HTMLInputElement>("buffer").addEventListener("input", (e) => {
-    state.bufferPct = Number((e.target as HTMLInputElement).value);
-    render();
-  });
+  $<HTMLInputElement>("buffer").addEventListener("input", (e) => updateSettings({ bufferPct: Number((e.target as HTMLInputElement).value) }));
   const rateInput = $<HTMLInputElement>("rateFile");
   rateInput.addEventListener("change", () => {
     if (rateInput.files?.[0]) readRateFile(rateInput.files[0]);
     rateInput.value = "";
   });
-  $<HTMLSelectElement>("ibkrKz").addEventListener("change", (e) => {
-    state.brokerInterestKz = (e.target as HTMLSelectElement).value === "861" ? "861" : "863";
-    render();
+  $<HTMLSelectElement>("ibkrKz").addEventListener("change", (e) =>
+    updateSettings({ brokerInterestKz: (e.target as HTMLSelectElement).value === "861" ? "861" : "863" }),
+  );
+  $<HTMLInputElement>("since").addEventListener("change", (e) => updateSettings({ taxSimpleSince: (e.target as HTMLInputElement).value }));
+  $("fileList").addEventListener("click", (e) => {
+    const id = (e.target as HTMLElement).closest<HTMLElement>("[data-remove]")?.dataset.remove;
+    if (!id) return;
+    const name = state.history.files.find((f) => f.id === id)?.name ?? "";
+    state.history = removeFile(state.history, id);
+    state.notice = `„${name}“ entfernt.`;
+    persist();
+    refresh();
   });
-  $<HTMLInputElement>("since").addEventListener("change", (e) => {
-    state.taxSimpleSince = (e.target as HTMLInputElement).value;
-    render();
+  $("backupSave").addEventListener("click", saveBackup);
+  const backupInput = $<HTMLInputElement>("backupFile");
+  backupInput.addEventListener("change", () => {
+    if (backupInput.files?.[0]) readBackup(backupInput.files[0]);
+    backupInput.value = "";
   });
-  $("sample").addEventListener("click", () => load(sampleCsv, "Beispieldaten", true));
-  load(sampleCsv, "Beispieldaten", true);
+  $("clearAll").addEventListener("click", clearAll);
+  $("sample").addEventListener("click", () => {
+    state.mode = "sample";
+    state.notice = "";
+    refresh();
+  });
+  $("mine").addEventListener("click", () => {
+    state.mode = "history";
+    state.notice = "";
+    refresh();
+  });
+
+  loadHistory().then(
+    (history) => {
+      state.history = history;
+      state.mode = history.files.length > 0 ? "history" : "sample";
+      applySettingsToControls();
+      refresh();
+    },
+    (e: unknown) => {
+      state.storageOk = false;
+      state.storageError = e instanceof Error ? e.message : String(e);
+      state.mode = "sample";
+      refresh();
+    },
+  );
 }
