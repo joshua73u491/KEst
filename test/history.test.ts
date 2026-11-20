@@ -39,7 +39,15 @@ describe("Lokale Historie: Dateien hinzufügen", () => {
   });
 
   test("Standard-Einstellungen", () => {
-    expect(emptyHistory().settings).toEqual({ taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff", otherIncomeEur: "" });
+    expect(emptyHistory().settings).toEqual({
+      taxSimpleSince: "",
+      brokerInterestKz: "863",
+      bufferPct: 10,
+      derivativesTreatment: "tariff",
+      otherIncomeEur: "",
+      reservePlace: "",
+      setupDoneAt: "",
+    });
   });
 });
 
@@ -109,7 +117,16 @@ describe("Lokale Historie: mehrere Dateien zusammenführen", () => {
 describe("Backup als JSON-Datei", () => {
   const history = (): History => {
     const h = add(emptyHistory(), "a.csv", trCsv(t1)).history;
-    return { ...h, settings: { taxSimpleSince: "2025-05-12", brokerInterestKz: "861", bufferPct: 20, derivativesTreatment: "special", otherIncomeEur: "32000" } };
+    return { ...h, settings: {
+      taxSimpleSince: "2025-05-12",
+      brokerInterestKz: "861",
+      bufferPct: 20,
+      derivativesTreatment: "special",
+      otherIncomeEur: "32000",
+      reservePlace: "Tagesgeld",
+      setupDoneAt: "2026-11-20",
+    },
+  };
   };
 
   test("exportieren und wiederherstellen ergibt dieselben Daten und Einstellungen", () => {

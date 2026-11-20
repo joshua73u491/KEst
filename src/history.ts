@@ -33,6 +33,10 @@ export interface Settings {
   derivativesTreatment: "tariff" | "special";
   /** geschätztes zu versteuerndes Einkommen ohne Kapitalerträge, für die Mehrsteuer auf KZ 857; leer = keine Angabe */
   otherIncomeEur: string;
+  /** Ort der Rücklage laut Einrichtung, freie Eingabe ohne Empfehlung; Vorschlag beim Eintragen des Stands */
+  reservePlace: string;
+  /** JJJJ-MM-TT, an dem die Einrichtung abgeschlossen wurde; leer = noch nicht */
+  setupDoneAt: string;
 }
 
 export interface History {
@@ -42,7 +46,15 @@ export interface History {
   reserve: Ledger;
 }
 
-export const DEFAULT_SETTINGS: Settings = { taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff", otherIncomeEur: "" };
+export const DEFAULT_SETTINGS: Settings = {
+  taxSimpleSince: "",
+  brokerInterestKz: "863",
+  bufferPct: 10,
+  derivativesTreatment: "tariff",
+  otherIncomeEur: "",
+  reservePlace: "",
+  setupDoneAt: "",
+};
 
 export const emptyHistory = (): History => ({ files: [], settings: { ...DEFAULT_SETTINGS }, reserve: emptyLedger() });
 
@@ -199,6 +211,8 @@ export function fromBackup(text: string): History {
     bufferPct: typeof s.bufferPct === "number" && s.bufferPct >= 0 && s.bufferPct <= 100 ? s.bufferPct : DEFAULT_SETTINGS.bufferPct,
     derivativesTreatment: s.derivativesTreatment === "special" ? "special" : "tariff",
     otherIncomeEur: typeof s.otherIncomeEur === "string" && /^(\d+(\.\d+)?)?$/.test(s.otherIncomeEur) ? s.otherIncomeEur : "",
+    reservePlace: typeof s.reservePlace === "string" ? s.reservePlace.slice(0, 80) : "",
+    setupDoneAt: typeof s.setupDoneAt === "string" && /^(\d{4}-\d{2}-\d{2})?$/.test(s.setupDoneAt) ? s.setupDoneAt : "",
   };
   return { files, settings, reserve: ledgerFromBackup(b.reserve) };
 }

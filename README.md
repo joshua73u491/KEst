@@ -22,6 +22,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/tariff.ts` | Einkommensteuertarif 2024 bis 2026 (BMF) und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
 | `src/sollTimeline.ts` | Soll je Steuerjahr bis heute; im laufenden Jahr auch der Höchststand an allen bisherigen Buchungstagen |
+| `src/setup.ts`, `src/web/setupWizard.ts` | Einrichtungsassistent: Anleitung zum Export je Broker (mit Platz für Screenshots), Sofortprüfung der Datei, drei Fragen |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -30,7 +31,9 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`.
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`; Joshua lässt sie parallel klären und hat den Weiterbau freigegeben (20.11.2026). Phase 3: 3.1 (Einrichtungsassistent) umgesetzt.
+
+**Einrichtung:** Beim ersten Besuch öffnet sich der Assistent (später über „Einrichtung“): Broker wählen, Anleitung mit Checkliste, Datei reinziehen mit Sofortprüfung (Umfang, Zeitraum, was fehlt, Fehler des Prüfassistenten), dann drei Fragen: Optionen/Futures (nur dann das sonstige Einkommen), Ort der Rücklage (freie Eingabe), Sicherheitspuffer; bei Trade Republic zusätzlich „steuereinfach seit“. Die Antworten stehen in den Einstellungen und im Backup.
 
 **Erinnerungen** (`reminders`, nur für die eigenen gespeicherten Daten): Warnung bei Fehlbetrag in der Rücklage oder fehlendem Stand, Warnung, wenn der letzte Import mehr als 30 Tage zurückliegt, Frist der Steuererklärung für das Vorjahr ab 1. Jänner (in den letzten 30 Tagen als Warnung, mit Link zur [BMF-Quelle](https://www.bmf.gv.at/themen/steuern/fuer-unternehmen/einkommensteuer/einkommensteuererklaerungspflicht.html)) und im November und Dezember der Hinweis, dass Verluste nur im selben Kalenderjahr ausgleichen, mit dem Stand des Jahres. Push-Nachrichten kommen erst in Phase 4.
 
