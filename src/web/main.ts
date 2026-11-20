@@ -17,8 +17,10 @@ import {
   type InvestmentKind,
   type Ledger,
   type ReserveInvestment,
+  type ReserveStatus,
   type YearSoll,
 } from "../ledger.js";
+import { reminders, yearFigures, type YearFigures } from "../reminders.js";
 import { reserveTarget } from "../reserve.js";
 import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
@@ -356,20 +358,78 @@ function yearOptions(): YearOptions {
 }
 
 /**
- * Soll-Verlauf zwischenspeichern: Er rechnet jedes Jahr und im laufenden Jahr jeden Buchungstag neu. Bezahlte Jahre
- * blendet erst `reserveStatus` aus, damit „Steuer bezahlt“ und „Rückgängig“ nichts neu rechnen müssen.
+ * Zwischenspeicher für Rechnungen über die ganze Historie (Soll-Verlauf, Zahlen für die Erinnerungen). Gilt, solange
+ * Daten und Kurse gleich bleiben; der Schlüssel enthält Einstellungen und Stichtag.
  */
-let sollCache: { data: ImportResult; rates: RateTable | null; values: Map<string, YearSoll[]> } | null = null;
-function yearSolls(data: ImportResult, now: string): YearSoll[] {
-  if (!sollCache || sollCache.data !== data || sollCache.rates !== state.rates) sollCache = { data, rates: state.rates, values: new Map() };
-  const s = state.history.settings;
-  const key = JSON.stringify([s, now]);
-  let v = sollCache.values.get(key);
-  if (!v) {
-    v = sollTimeline(data, yearOptions(), s.bufferPct, now, {});
-    sollCache.values.set(key, v);
+let calcCache: { data: ImportResult; rates: RateTable | null; values: Map<string, unknown> } | null = null;
+function cached<T>(data: ImportResult, name: string, now: string, compute: () => T): T {
+  if (!calcCache || calcCache.data !== data || calcCache.rates !== state.rates) calcCache = { data, rates: state.rates, values: new Map() };
+  const key = JSON.stringify([name, state.history.settings, now]);
+  if (!calcCache.values.has(key)) calcCache.values.set(key, compute());
+  return calcCache.values.get(key) as T;
+}
+
+/**
+ * Soll-Verlauf: rechnet jedes Jahr und im laufenden Jahr jeden Buchungstag neu. Bezahlte Jahre blendet erst
+ * `reserveStatus` aus, damit „Steuer bezahlt“ und „Rückgängig“ nichts neu rechnen müssen.
+ */
+const yearSolls = (data: ImportResult, now: string): YearSoll[] =>
+  cached(data, "soll", now, () => sollTimeline(data, yearOptions(), state.history.settings.bufferPct, now, {}));
+
+interface LedgerState {
+  /** `null` ohne Daten oder wenn die Rechnung scheitert */
+  solls: YearSoll[] | null;
+  calcError: string;
+  status: ReserveStatus;
+}
+
+function ledgerState(data: ImportResult | null, now: string): LedgerState {
+  let solls: YearSoll[] | null = null;
+  let calcError = "";
+  if (data) {
+    try {
+      solls = yearSolls(data, now);
+    } catch (e) {
+      calcError = `Das Soll konnte nicht berechnet werden: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
-  return v;
+  return { solls, calcError, status: reserveStatus(solls ?? [], state.history.reserve, now) };
+}
+
+/** Erinnerungen über der Auswertung; nur für die eigenen gespeicherten Daten, nicht für die Beispieldaten. */
+function renderReminders(data: ImportResult | null, ls: LedgerState, now: string) {
+  const files = state.history.files;
+  if (state.mode !== "history" || files.length === 0) {
+    $("remindBand").hidden = true;
+    return;
+  }
+  const year = Number(now.slice(0, 4));
+  let currentYear: YearFigures | null = null;
+  let previousYear: YearFigures | null = null;
+  if (data) {
+    try {
+      currentYear = cached(data, "current", now, () => yearFigures(computeYear(data, year, { ...yearOptions(), asOf: now })));
+      previousYear = cached(data, "previous", now, () => yearFigures(computeYear(data, year - 1, yearOptions())));
+    } catch {
+      // Den Fehler zeigt die Auswertung darunter.
+    }
+  }
+  const list = reminders({
+    today: now,
+    reserve: ls.solls ? ls.status : null,
+    lastImportAt: files.map((f) => f.importedAt).sort().pop() ?? null,
+    currentYear,
+    previousYear,
+    paidYears: state.history.reserve.paidYears,
+  });
+  $("remindBand").hidden = list.length === 0;
+  $("remindList").innerHTML = list
+    .map(
+      (r) =>
+        `<li class="sev-${r.severity}"><span class="badge">${r.severity === "warning" ? "Warnung" : "Hinweis"}</span><span>${esc(r.text)}` +
+        `${r.source ? ` <a href="${esc(r.source.url)}" target="_blank" rel="noopener">${esc(r.source.label)}</a>` : ""}</span></li>`,
+    )
+    .join("");
 }
 
 const statusCell = (label: string, value: string, note = "", cls = "") =>
@@ -384,21 +444,11 @@ function updateReserve(reserve: Ledger) {
 }
 
 /** Bereich „Rücklage“: Soll offener Jahre gegen den eingetragenen Marktwert, Freigabe erst nach dem 31.12. */
-function renderLedger(data: ImportResult | null) {
+function renderLedger(data: ImportResult | null, ls: LedgerState, now: string) {
   const ledger = state.history.reserve;
-  const now = today();
   const sample = state.mode === "sample";
   $("ledgerSample").hidden = !sample;
-  let solls: YearSoll[] | null = null;
-  let calcError = "";
-  if (data) {
-    try {
-      solls = yearSolls(data, now);
-    } catch (e) {
-      calcError = `Das Soll konnte nicht berechnet werden: ${e instanceof Error ? e.message : String(e)}`;
-    }
-  }
-  const st = reserveStatus(solls ?? [], ledger, now);
+  const { solls, calcError, status: st } = ls;
   const ist = st.istEur
     ? statusCell("Ist", formatEur(st.istEur), `Stand ${deDate(st.istDate ?? "")}${st.istPlace ? `, ${esc(st.istPlace)}` : ""}`)
     : statusCell("Ist", "–", "noch kein Stand eingetragen");
@@ -523,8 +573,11 @@ function render() {
   $("rateFileBtn").hidden = !state.ratesMissing;
   renderStore();
   const data = state.data;
+  const now = today();
+  const ls = ledgerState(data, now);
+  renderReminders(data, ls, now);
   renderCheck(data);
-  renderLedger(data);
+  renderLedger(data, ls, now);
   if (!data) {
     renderEmpty();
     return;

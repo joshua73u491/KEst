@@ -22,6 +22,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/tariff.ts` | Einkommensteuertarif 2024 bis 2026 (BMF) und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
 | `src/sollTimeline.ts` | Soll je Steuerjahr bis heute; im laufenden Jahr auch der Höchststand an allen bisherigen Buchungstagen |
+| `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
 | `src/import/ibkrFlex.ts` | Import einer IBKR Activity Flex Query (XML): Trades, CashTransactions, OpenPositions |
@@ -29,7 +30,9 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung) und 2.3 (Rücklagen-Ledger) umgesetzt; offen ist 2.4 (Warnen und erinnern).
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt; als Nächstes Gate 2.
+
+**Erinnerungen** (`reminders`, nur für die eigenen gespeicherten Daten): Warnung bei Fehlbetrag in der Rücklage oder fehlendem Stand, Warnung, wenn der letzte Import mehr als 30 Tage zurückliegt, Frist der Steuererklärung für das Vorjahr ab 1. Jänner (in den letzten 30 Tagen als Warnung, mit Link zur [BMF-Quelle](https://www.bmf.gv.at/themen/steuern/fuer-unternehmen/einkommensteuer/einkommensteuererklaerungspflicht.html)) und im November und Dezember der Hinweis, dass Verluste nur im selben Kalenderjahr ausgleichen, mit dem Stand des Jahres. Push-Nachrichten kommen erst in Phase 4.
 
 **Rücklage:** Der Nutzer trägt den aktuellen Marktwert seiner Rücklage mit Datum und Ort ein; es zählt der neueste Eintrag bis heute. Die App vergleicht ihn mit dem Soll aller Jahre, deren Steuer noch nicht als bezahlt markiert ist, und zeigt Fehlbetrag oder Überschuss. Was über dem Soll liegt, wird erst nach dem 31.12. frei (Testfall 6). Der Kriterien-Check prüft nur die Angaben des Nutzers (Anlageart, Meldefonds, Risikoklasse laut Basisinformationsblatt), warnt und blockiert nichts; er nennt kein Produkt. Einträge, Anlage und bezahlte Jahre liegen in der Historie und im Backup.
 
@@ -97,6 +100,9 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Freigabe der Rücklage erst nach dem 31.12.:** Im laufenden Jahr gilt für die Freigabe der höchste Soll-Wert, den das Jahr an einem Buchungstag bis heute erreicht hat, weil sich die Steuer bis Jahresende noch ändern kann (PRODUKTPLAN, Testfall 6). Ab dem 1.1. zählt das endgültige Soll des abgelaufenen Jahres, bis der Nutzer die Steuer als bezahlt markiert. Abgeschlossene Jahre zählen zum Soll, bis sie als bezahlt markiert sind; eine Vorauszahlung oder ein Bescheid wird nicht erfasst (`src/ledger.ts`, `src/sollTimeline.ts`).
 - **Ist = Marktwert laut Nutzer:** Die App fragt keinen Kontostand ab und rechnet keine Erträge der Rücklage hoch. Steuer auf Erträge der Rücklage selbst (z. B. Zinsen) ist nur im Soll enthalten, wenn diese Erträge in einem importierten Export stehen.
 - **Kriterien-Check:** Warnung ab Risikoklasse 3 laut Basisinformationsblatt (Entscheidung Joshua, 20.11.2026), bei Aktien-ETFs und Anleihen-ETFs mit langer Laufzeit, bei Nicht-Meldefonds und bei Fonds ohne bekannten Meldefonds-Status. Die Texte beschreiben nur Kriterien laut PRODUKTPLAN („Angelegte Rücklage: Regeln“) und empfehlen keine Anlage.
+- **Frist der Steuererklärung:** Papier bis 30. April, FinanzOnline bis 30. Juni des Folgejahres (§ 134 Abs 1 BAO, laut BMF, geprüft am 20.11.2026). Fällt das Fristende auf ein Wochenende, endet die Frist erst am nächsten Werktag (§ 108 Abs 3 BAO); die App nennt bewusst das frühere, gesetzliche Datum. Längere Fristen mit steuerlicher Vertretung und Fristverlängerungen kennt die App nicht. Der Hinweis erscheint, wenn das Vorjahr Beträge für die E1kv hat, und endet, sobald die Steuer für das Jahr als bezahlt markiert ist. Ob überhaupt eine Erklärungspflicht besteht, prüft die App nicht.
+- **Verlustausgleich im November/Dezember:** Der Hinweis nennt nur die Regel und den Stand des Jahres im 27,5 %-Topf (Überschüsse, Verluste, nicht ausgeglichener Verlust). Er empfiehlt keinen Verkauf. KZ 857 (Tarif) ist nicht enthalten.
+- **Letzter Import:** gemessen am Tag, an dem die Datei in der App gespeichert wurde, nicht am letzten Buchungstag im Export.
 - **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
 
 ## Daten
