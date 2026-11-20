@@ -1,5 +1,30 @@
+import type { Finding, Severity } from "./check.js";
 import { dec, type DecInput } from "./decimal.js";
 import type { YearReport } from "./yearReport.js";
+
+export const SEVERITY_LABEL: Record<Severity, string> = { error: "Fehler", warning: "Warnung", info: "Hinweis" };
+
+/** Fundstellen lesbar: „a.csv, Zeilen 2, 5; b.csv, Zeile 4“; lange Listen gekürzt. */
+export function formatLocations(at: Finding["at"], max = 5): string {
+  const byFile = new Map<string, number[]>();
+  for (const x of at) byFile.set(x.file ?? "", [...(byFile.get(x.file ?? "") ?? []), x.line]);
+  return [...byFile]
+    .map(([file, lines]) => {
+      const shown = lines.slice(0, max).join(", ");
+      const more = lines.length > max ? ` und ${lines.length - max} weitere` : "";
+      return `${file ? `${file}, ` : ""}${lines.length === 1 ? "Zeile" : "Zeilen"} ${shown}${more}`;
+    })
+    .join("; ");
+}
+
+export function formatFindings(findings: Finding[]): string {
+  if (findings.length === 0) return "Prüfassistent: keine Auffälligkeiten in den Buchungen.";
+  const width = Math.max(...findings.map((f) => SEVERITY_LABEL[f.severity].length)) + 2;
+  return [
+    "Prüfassistent: Buchungen prüfen",
+    ...findings.map((f) => `${`[${SEVERITY_LABEL[f.severity]}]`.padEnd(width + 1)}${f.text}${f.at.length ? ` (${formatLocations(f.at)})` : ""}`),
+  ].join("\n");
+}
 
 /** Rundet kaufmännisch auf Cent und formatiert deutsch: 1.234,57 € */
 export function formatEur(value: DecInput): string {

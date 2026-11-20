@@ -14,6 +14,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/web/loadRates.ts` | Abruf der EZB-Referenzkurse in der Web-App (nur Währung und Zeitraum) |
 | `src/history.ts` | Lokale Steuerhistorie: Dateien und Einstellungen, Zusammenführen mehrerer Dateien und Broker (Duplikate über die Transaktions-ID), Backup als JSON |
 | `src/web/storage.ts` | Dauerhafte Speicherung der Historie im Browser (IndexedDB) |
+| `src/check.ts` | Prüfassistent „Buchungen prüfen“ (`checkBookings`): Hinweise mit Schweregrad über alle gespeicherten Buchungen |
 | `src/costBasis.ts` | Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG) |
 | `src/basket275.ts` | 27,5 %-Topf: KZ 994, 892, 863, 998, Verlustausgleich, Quellensteuer-Anrechnung |
 | `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
@@ -25,7 +26,18 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Noch offen in Phase 1: Prüfassistent.
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5). Offen ist Gate 1: das Steuerjahr 2025 mit einem echten Export gegen DepotTax oder Tax-Wizard abgleichen.
+
+**Prüfassistent:** `checkBookings` prüft alle gespeicherten Buchungen aller Jahre mit festen Regeln (keine Sprach-KI) und meldet mit Schweregrad (Fehler, Warnung, Hinweis):
+- Verkauf ohne ausreichenden Bestand (Kauf vermutlich vor dem Exportzeitraum)
+- Übertrag größer als Bestand
+- doppelte Buchungen: gleicher Trade mehrfach in den Daten (Warnung) und Duplikate aus mehreren Dateien (Hinweis)
+- Lücken im Exportzeitraum: bei IBKR jeder Tag ohne Auszug (laut fromDate/toDate), bei Trade Republic mehr als 31 Tage zwischen der letzten Buchung einer Datei und der ersten der nächsten (der Export nennt keinen Zeitraum)
+- Fremdwährung ohne EZB-Kurs (Kurse nicht geladen oder kein Kurs an dem Tag)
+- unbekannte Buchungstypen, je Typ zusammengefasst
+- Bestand nahe 0 durch Rundung (Rest höchstens ein Millionstel des größten Bestands bzw. 0,00000001 Stück)
+
+Die Web-App zeigt die Hinweise über der Auswertung, der Bericht vor den Kennzahlen.
 
 ## Entwickeln
 

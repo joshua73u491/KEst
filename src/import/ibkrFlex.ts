@@ -82,6 +82,8 @@ function checkFields(section: string, rows: XmlElement[], fields: string[]): voi
 /** Ein Kontoauszug (FlexStatement) einer Datei, geprüft und mit den Zeilen der drei Abschnitte. */
 export interface FlexStatementData {
   accountId: string;
+  /** Beginn des Zeitraums (JJJJ-MM-TT), leer wenn nicht angegeben */
+  fromDate: string;
   /** Ende des Zeitraums (JJJJ-MM-TT); der neueste Auszug liefert den Bestandsabgleich */
   toDate: string;
   trades: XmlElement[];
@@ -116,13 +118,21 @@ export function readIbkrFlexStatements(text: string, source?: string): FlexState
     if (trades.length > 0 && !trades.some((r) => (r.attrs.levelOfDetail ?? "EXECUTION") === "EXECUTION")) {
       throw new Error("Im Abschnitt Trades fehlen die Einzelausführungen. Bitte in der Flex Query für Trades die Detailstufe „Executions“ wählen.");
     }
-    let toDate = "";
-    try {
-      toDate = parseDate(statement.attrs.toDate ?? "").date;
-    } catch {
-      // ohne Enddatum: gilt beim Zusammenführen als ältester Auszug
-    }
-    return { accountId: statement.attrs.accountId ?? "", toDate, trades, cash, positions };
+    const dateOrEmpty = (v: string | undefined) => {
+      try {
+        return parseDate(v ?? "").date;
+      } catch {
+        return ""; // ohne Datum: gilt beim Zusammenführen als ältester Auszug, keine Lückenprüfung
+      }
+    };
+    return {
+      accountId: statement.attrs.accountId ?? "",
+      fromDate: dateOrEmpty(statement.attrs.fromDate),
+      toDate: dateOrEmpty(statement.attrs.toDate),
+      trades,
+      cash,
+      positions,
+    };
   });
 }
 

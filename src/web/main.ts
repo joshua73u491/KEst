@@ -2,7 +2,9 @@ import sampleCsv from "../../test/fixtures/tr-beispiel.csv";
 import { dec, D, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
 import { parseRateFile, type RateTable } from "../fx.js";
-import { addFile, combine, emptyHistory, fromBackup, removeFile, restoreBackup, toBackup, type History } from "../history.js";
+import { checkBookings, type CheckInput, type FilePeriod } from "../check.js";
+import { formatLocations, SEVERITY_LABEL } from "../format.js";
+import { addFile, combine, emptyHistory, filePeriods, fromBackup, removeFile, restoreBackup, toBackup, type History } from "../history.js";
 import type { ImportResult } from "../import/model.js";
 import { parseExport } from "../import/readAny.js";
 import { reserveTarget } from "../reserve.js";
@@ -18,6 +20,8 @@ interface State {
   data: ImportResult | null;
   /** Buchungen, die in mehreren Dateien vorkamen */
   duplicates: number;
+  /** Zeitraum je gespeicherter Datei, für die Lückenprüfung */
+  periods: FilePeriod[];
   /** false, wenn der Browser nicht speichern kann (z. B. privates Fenster) */
   storageOk: boolean;
   storageError: string;
@@ -45,6 +49,7 @@ const state: State = {
   mode: "sample",
   data: null,
   duplicates: 0,
+  periods: [],
   storageOk: true,
   storageError: "",
   notice: "",
@@ -98,6 +103,7 @@ function yearsOf(data: ImportResult): number[] {
 /** Berechnet die angezeigten Daten neu: Beispieldaten oder alle gespeicherten Dateien zusammengeführt. */
 function refresh() {
   try {
+    state.periods = [];
     if (state.mode === "sample") {
       state.data = parseExport(sampleCsv).data;
       state.duplicates = 0;
@@ -108,6 +114,7 @@ function refresh() {
       const c = combine(state.history);
       state.data = c.data;
       state.duplicates = c.duplicates;
+      state.periods = filePeriods(state.history);
     }
   } catch (e) {
     state.data = null;
@@ -264,6 +271,34 @@ function renderStore() {
   $("notice").textContent = state.notice;
 }
 
+/** Prüfassistent über der Auswertung: prüft alle Buchungen aller Jahre. */
+function renderCheck(data: ImportResult | null) {
+  if (!data) {
+    $("checkBand").hidden = true;
+    return;
+  }
+  const input: CheckInput = { data, duplicates: state.duplicates, periods: state.periods };
+  if (state.rates) input.rates = state.rates;
+  if (state.history.settings.taxSimpleSince) input.taxSimpleSince = state.history.settings.taxSimpleSince;
+  // Solange die EZB-Kurse noch laden, nicht vorschnell „nicht geladen“ melden.
+  const findings = checkBookings(input).filter((f) => !(f.code === "rates-not-loaded" && state.ratesStatus.startsWith("Lade")));
+  $("checkBand").hidden = false;
+  const counts = (["error", "warning", "info"] as const)
+    .map((s) => [s, findings.filter((f) => f.severity === s).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([s, n]) => `${n} ${n === 1 ? SEVERITY_LABEL[s] : { error: "Fehler", warning: "Warnungen", info: "Hinweise" }[s]}`);
+  $("checkSummary").textContent = findings.length
+    ? `${counts.join(", ")}. Geprüft werden alle gespeicherten Buchungen, nicht nur das gewählte Jahr.`
+    : "Keine Auffälligkeiten in den Buchungen.";
+  $("checkList").innerHTML = findings
+    .map(
+      (f) =>
+        `<li class="sev-${f.severity}"><span class="badge">${SEVERITY_LABEL[f.severity]}</span><span>${esc(f.text)}` +
+        `${f.at.length ? ` <small>${esc(formatLocations(f.at))}</small>` : ""}</span></li>`,
+    )
+    .join("");
+}
+
 /** Zeigt statt der Auswertung einen klaren Leerzustand; die Seite bleibt bedienbar. */
 function renderEmpty() {
   $("source").innerHTML = "Noch keine Datei geladen.";
@@ -307,6 +342,7 @@ function render() {
   $("rateFileBtn").hidden = !state.ratesMissing;
   renderStore();
   const data = state.data;
+  renderCheck(data);
   if (!data) {
     renderEmpty();
     return;

@@ -1,3 +1,4 @@
+import type { FilePeriod } from "./check.js";
 import { processIbkrStatements, readIbkrFlexStatements, type FlexStatementData } from "./import/ibkrFlex.js";
 import type { ImportResult } from "./import/model.js";
 import { parseExport, type Broker } from "./import/readAny.js";
@@ -109,7 +110,8 @@ export function combine(history: History): Combined {
     };
     // Bestandsabgleich nur mit dem neuesten Auszug (bei gleichem Enddatum: zuletzt importiert)
     const newest = statements.reduce((a, b) => (b.toDate >= a.toDate ? b : a));
-    merged.push({ accountId, toDate: newest.toDate, trades: unique((s) => s.trades), cash: unique((s) => s.cash), positions: newest.positions });
+    const fromDate = statements.map((s) => s.fromDate).filter((d) => d !== "").sort()[0] ?? "";
+    merged.push({ accountId, fromDate, toDate: newest.toDate, trades: unique((s) => s.trades), cash: unique((s) => s.cash), positions: newest.positions });
   }
   if (merged.length > 0) parts.push(processIbkrStatements(merged));
 
@@ -123,6 +125,28 @@ export function combine(history: History): Combined {
     data.unsupported.push(...p.unsupported);
   }
   return { data, duplicates };
+}
+
+/**
+ * Zeitraum je Datei und Depot für die Lückenprüfung des Prüfassistenten: bei IBKR laut Flex Query (fromDate/toDate),
+ * bei Trade Republic abgeleitet aus der ersten und letzten Buchung der Datei (der Export nennt keinen Zeitraum).
+ */
+export function filePeriods(history: History): FilePeriod[] {
+  const periods: FilePeriod[] = [];
+  for (const f of history.files) {
+    if (f.broker === "Trade Republic") {
+      const dates = readTradeRepublicRows(f.text, f.name)
+        .map((r) => (r.row.date ?? "").trim())
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+        .sort();
+      if (dates.length > 0) periods.push({ depot: "TR", file: f.name, from: dates[0]!, to: dates[dates.length - 1]!, exact: false });
+    } else {
+      for (const st of readIbkrFlexStatements(f.text, f.name)) {
+        if (st.fromDate && st.toDate) periods.push({ depot: `IBKR ${st.accountId}`.trim(), file: f.name, from: st.fromDate, to: st.toDate, exact: true });
+      }
+    }
+  }
+  return periods;
 }
 
 const APP = "KESt-Rücklage";
