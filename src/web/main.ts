@@ -1,9 +1,11 @@
 import sampleCsv from "../../test/fixtures/tr-beispiel.csv";
 import { dec, D, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
+import { parseRateFile, type RateTable } from "../fx.js";
 import type { ImportResult } from "../import/tradeRepublic.js";
 import { reserveTarget } from "../reserve.js";
-import { computeYear, type YearReport } from "../yearReport.js";
+import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
+import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
 import { readExport } from "./readExport.js";
 
 interface State {
@@ -14,6 +16,12 @@ interface State {
   bufferPct: number;
   /** JJJJ-MM-TT, ab dem Trade Republic die KESt abzieht; leer = nicht steuereinfach */
   taxSimpleSince: string;
+  /** EZB-Referenzkurse für Dividenden in Fremdwährung */
+  rates: RateTable | null;
+  /** Stand des Kursabrufs für die Anzeige; leer, wenn keine Kurse gebraucht werden */
+  ratesStatus: string;
+  /** true, wenn Kurse gebraucht werden, aber nicht geladen sind: dann Kursdatei anbieten */
+  ratesMissing: boolean;
   error: string;
 }
 
@@ -22,7 +30,48 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto" } as const;
 const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zinsen" } as const;
 
-const state: State = { data: null, source: "", isSample: true, year: 2026, bufferPct: 10, taxSimpleSince: "", error: "" };
+const state: State = {
+  data: null,
+  source: "",
+  isSample: true,
+  year: 2026,
+  bufferPct: 10,
+  taxSimpleSince: "",
+  rates: null,
+  ratesStatus: "",
+  ratesMissing: false,
+  error: "",
+};
+/** Zählt Ladevorgänge, damit ein später eintreffender Kursabruf keine neuere Datei überschreibt. */
+let loadId = 0;
+
+/** Holt die EZB-Kurse, die die geladene Datei braucht. Ohne Fremdwährungs-Dividenden wird nichts abgerufen. */
+function loadRates(data: ImportResult) {
+  const id = ++loadId;
+  state.rates = null;
+  const need = ratesNeeded(data);
+  if (!need) {
+    state.ratesStatus = "";
+    state.ratesMissing = false;
+    return;
+  }
+  state.ratesStatus = `Lade EZB-Referenzkurse für ${need.currencies.join(", ")} von der EZB …`;
+  state.ratesMissing = true;
+  fetchEcbRates(need).then(
+    (table) => {
+      if (id !== loadId) return;
+      state.rates = table;
+      state.ratesMissing = false;
+      state.ratesStatus = `EZB-Referenzkurse für ${need.currencies.join(", ")} von ${need.start} bis ${need.end} geladen.`;
+      render();
+    },
+    (e: unknown) => {
+      if (id !== loadId) return;
+      state.ratesStatus = `${e instanceof Error ? e.message : String(e)} Du kannst die Datei eurofxref-hist.csv von der EZB-Website selbst laden.`;
+      render();
+    },
+  );
+}
 
 function yearsOf(data: ImportResult): number[] {
   const ys = new Set<number>();
@@ -42,12 +91,37 @@ function load(text: string, source: string, isSample: boolean) {
     state.data = r.data;
     state.error = "";
     state.year = yearsOf(r.data)[0] ?? state.year;
+    loadRates(r.data);
   } else {
     // Keine alten Zahlen neben einer neuen Datei stehen lassen.
     state.data = null;
     state.error = r.message;
+    loadId++;
+    state.rates = null;
+    state.ratesStatus = "";
+    state.ratesMissing = false;
   }
   render();
+}
+
+function readRateFile(file: File) {
+  file.text().then(
+    (text) => {
+      try {
+        state.rates = parseRateFile(text);
+        loadId++; // ein noch laufender Abruf soll die gewählte Datei nicht überschreiben
+        state.ratesMissing = false;
+        state.ratesStatus = `EZB-Kurse aus ${file.name} geladen.`;
+      } catch (e) {
+        state.ratesStatus = e instanceof Error ? e.message : String(e);
+      }
+      render();
+    },
+    () => {
+      state.ratesStatus = "Die Kursdatei konnte nicht geöffnet werden.";
+      render();
+    },
+  );
 }
 
 function fail(message: string) {
@@ -94,6 +168,9 @@ function kzRows(r: YearReport): Array<[string, string, Dec]> {
 function render() {
   $("error").hidden = !state.error;
   $("error").textContent = state.error;
+  $("ratesBox").hidden = !state.ratesStatus;
+  $("ratesStatus").textContent = state.ratesStatus;
+  $("rateFileBtn").hidden = !state.ratesMissing;
   const data = state.data;
   if (!data) {
     renderEmpty();
@@ -102,7 +179,10 @@ function render() {
 
   let report: YearReport;
   try {
-    report = computeYear(data, state.year, state.taxSimpleSince ? { taxSimpleSince: state.taxSimpleSince } : {});
+    const options: YearOptions = {};
+    if (state.taxSimpleSince) options.taxSimpleSince = state.taxSimpleSince;
+    if (state.rates) options.rates = state.rates;
+    report = computeYear(data, state.year, options);
   } catch (e) {
     fail(`Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
     return;
@@ -176,7 +256,7 @@ function render() {
           d.treatySource
             ? `<a href="${esc(d.treatySource)}" target="_blank" rel="noopener">DBA ${d.treatyRate.times(100).toString()} %</a>`
             : "DBA-Satz nicht hinterlegt"
-        })</small></td>` +
+        }${d.ecbRate ? `, ${esc(d.originalCurrency)} zum EZB-Kurs ${d.ecbRate.toString().replace(".", ",")}` : ""})</small></td>` +
         `<td class="num">${formatEur(d.grossEur)}</td><td class="num">${formatEur(d.withheldEur)}</td><td class="num">${formatEur(d.creditableEur)}</td></tr>`,
     )
     .join("");
@@ -265,6 +345,11 @@ function readFile(file: File) {
   $<HTMLInputElement>("buffer").addEventListener("input", (e) => {
     state.bufferPct = Number((e.target as HTMLInputElement).value);
     render();
+  });
+  const rateInput = $<HTMLInputElement>("rateFile");
+  rateInput.addEventListener("change", () => {
+    if (rateInput.files?.[0]) readRateFile(rateInput.files[0]);
+    rateInput.value = "";
   });
   $<HTMLInputElement>("since").addEventListener("change", (e) => {
     state.taxSimpleSince = (e.target as HTMLInputElement).value;

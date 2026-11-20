@@ -10,7 +10,8 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 
 | Modul | Was es rechnet |
 | --- | --- |
-| `src/fx.ts` | Umrechnung in EUR zum EZB-Referenzkurs am Buchungstag |
+| `src/fx.ts` | Umrechnung in EUR zum EZB-Referenzkurs; austauschbare Kursquelle (`RateSource`), Einlesen der EZB-Kursdateien |
+| `src/web/loadRates.ts` | Abruf der EZB-Referenzkurse in der Web-App (nur Währung und Zeitraum) |
 | `src/costBasis.ts` | Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG) |
 | `src/basket275.ts` | 27,5 %-Topf: KZ 994, 892, 863, 998, Verlustausgleich, Quellensteuer-Anrechnung |
 | `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
@@ -19,7 +20,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Noch offen in Phase 1: EZB-Kursabruf für Fremdwährungs-Trades und -Dividenden, IBKR-Import, lokale Historie, Prüfassistent.
+Noch offen in Phase 1: IBKR-Import, lokale Historie, Prüfassistent.
 
 ## Entwickeln
 
@@ -29,7 +30,10 @@ npm test          # alle Tests
 npm run typecheck # TypeScript-Prüfung
 npm run report -- data/private/<Export>.csv 2026   # Auswertung einer echten Datei
 npm run report -- data/private/<Export>.csv 2026 --steuereinfach-seit JJJJ-MM-TT   # Konto mit KESt-Abzug durch Trade Republic
+npm run report -- data/private/<Export>.csv 2026 --ezb-kurse <eurofxref-hist.csv>   # Dividenden in Fremdwährung
 ```
+
+EZB-Kursdatei: [EZB, Euro foreign exchange reference rates](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) → `eurofxref-hist.zip`, entpackt. Die Web-App ruft die Kurse selbst über die [EZB-Datenschnittstelle](https://data.ecb.europa.eu/help/api/data) ab.
 
 Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung.
 
@@ -50,9 +54,12 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Quellensteuer = Spalte `tax` bei Dividenden:** Bei einem nicht steuereinfachen Konto gilt der ganze Betrag als ausländische Quellensteuer. Anrechenbar höchstens bis zum DBA-Satz (`src/treaty.ts`) und nach dem Verlustausgleich gekürzt (Annahme oben).
 - **Quellenstaat = Land der ISIN:** Bei Hinterlegungsscheinen (ADR) oder Gesellschaften mit Sitz in einem anderen Land stimmt das nicht. Für Länder ohne hinterlegten DBA-Satz (z. B. Irland, Japan, Vereinigtes Königreich) wird keine Quellensteuer angerechnet und ein Hinweis gezeigt. Die MLI-synthetisierten Abkommensfassungen sind nicht geprüft.
 - **Storno einer Ausschüttung:** Kehrt ein Storno eine frühere Ausschüttung derselben ISIN genau um (Betrag und Steuer), heben sich beide auf. Ohne passendes Gegenstück wird das Storno als „nicht berechnet“ gemeldet. Liegt das Storno in einem anderen Jahr als die ursprüngliche Ausschüttung, kommt ein Hinweis: Die Neubuchung zählt im Jahr ihres Buchungsdatums.
-- **Nicht berechnet:** Ausschüttungen von Fonds und ETFs (steuerpflichtig ist laut § 186 InvFG 2011 bei Meldefonds der von der OeKB veröffentlichte Anteil, bei Nicht-Meldefonds die ganze Ausschüttung), Dividenden in Fremdwährung (bis zur EZB-Umrechnung), Kapitalausschüttungen (`DIVIDEND_EQUIVALENT_PAYMENT`, möglicherweise Einlagenrückzahlung; danach auch Verkäufe dieser Position), inländische Dividenden (ISIN AT), Zinsen aus Wertpapieren und Dividenden mit Steuergutschrift.
+- **Nicht berechnet:** Ausschüttungen von Fonds und ETFs (steuerpflichtig ist laut § 186 InvFG 2011 bei Meldefonds der von der OeKB veröffentlichte Anteil, bei Nicht-Meldefonds die ganze Ausschüttung), Dividenden in Fremdwährung ohne EZB-Kurs am Zuflusstag oder ohne Originalbetrag, Kapitalausschüttungen (`DIVIDEND_EQUIVALENT_PAYMENT`, möglicherweise Einlagenrückzahlung; danach auch Verkäufe dieser Position), inländische Dividenden (ISIN AT), Zinsen aus Wertpapieren und Dividenden mit Steuergutschrift.
 - **Altbestand wird nicht erkannt:** Krypto, angeschafft vor dem 1.3.2021, und Wertpapiere, angeschafft vor dem 1.1.2011, sind nicht steuerverfangen bzw. anders zu behandeln. Die App rechnet alle Käufe als Neubestand. Für Trade-Republic-Konten ist das in der Regel ohne Bedeutung, für ältere Depots aber zu prüfen.
-- **Umrechnung durch Trade Republic:** Trades mit einer Originalwährung außer EUR werden nicht gerechnet (Umrechnung zum EZB-Referenzkurs fehlt noch) und als „nicht berechnet“ gemeldet.
+- **Fremdwährung, Grundlage:** EStR 2000 Rz 6201c (Fassung vom 21.04.2026, Findok): Einkünfte in Fremdwährung (zB Dividenden, Zinsen) werden mit dem EZB-Referenzkurs im Zuflusszeitpunkt bewertet, ebenso Kursgewinne ohne tatsächliche Umrechnung in Euro. Kommt es tatsächlich zu einer Konvertierung in Euro, zählt der dabei verwendete Kurs.
+- **Trades in Fremdwährung bei Trade Republic:** Trade Republic führt nur ein EUR-Konto und rechnet sofort um. Das gilt als tatsächliche Konvertierung: Es zählt der Euro-Betrag aus dem Export, kein EZB-Kurs (Entscheidung Joshua, 20.11.2026).
+- **Dividenden in Fremdwährung:** Bruttobetrag = Originalbetrag (`original_amount`) zum EZB-Referenzkurs am Zuflusstag (`date`). Trade Republic weist die einbehaltene Steuer nur in EUR aus; sie wird mit dem Kurs von Trade Republic (`fx_rate`) in die Originalwährung zurückgerechnet und dann zum EZB-Kurs umgerechnet. Annahme: Trade Republic rechnet Steuer und Bruttobetrag mit demselben Kurs um.
+- **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
 
 ## Daten
 
