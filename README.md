@@ -39,6 +39,12 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Zinsen auf dem Trade-Republic-Verrechnungskonto** gelten als Zinsen aus Geldeinlagen bei Kreditinstituten: KZ 861, 25 %.
 - **Krypto-Auslieferung ins eigene Wallet** ist ein Übertrag ohne Gewinn. Verkäufe außerhalb von Trade Republic erfasst die App noch nicht.
 - **Vorzeichen von KZ 892:** Intern als positiver Betrag geführt. Wie er in FinanzOnline einzutragen ist, entscheidet erst der Bericht.
+- **Kauf und Verkauf mit identischem Zeitstempel:** Der Kauf wird zuerst verbucht, unabhängig von der Reihenfolge in der Datei (`src/yearReport.ts`). Bei bereits vorhandenem Bestand beeinflusst das den Durchschnittspreis; offene Frage in `docs/HANDOFF.md`.
+- **Fehlender Bestand:** Übersteigt ein Verkauf oder Übertrag den bekannten Bestand (z. B. Kauf vor dem Exportzeitraum), wird er samt allen späteren Abgängen derselben Position als „nicht berechnet“ gemeldet und die Position nicht mehr angezeigt. Dasselbe gilt ab einer übersprungenen Wertpapierbuchung (z. B. Fremdwährung, unbekannte Kapitalmaßnahme, ungültige Zahl). Die Rücklage kann dann zu niedrig sein; die App weist darauf hin.
+- **Fonds und ETFs:** Ausschüttungsgleiche Erträge (KZ 937) und die Pauschalbesteuerung von Nicht-Meldefonds rechnet die App noch nicht. Käufe und Verkäufe werden gerechnet, je Fonds erscheint ein Hinweis unter „Nicht berechnet“.
+- **Spalte `tax` im Export:** Ein dort ausgewiesener Steuerbetrag wird noch nicht angerechnet, sondern als Hinweis gemeldet. Die Rücklage fällt dadurch eher zu hoch aus.
+- **Altbestand wird nicht erkannt:** Krypto, angeschafft vor dem 1.3.2021, und Wertpapiere, angeschafft vor dem 1.1.2011, sind nicht steuerverfangen bzw. anders zu behandeln. Die App rechnet alle Käufe als Neubestand. Für Trade-Republic-Konten ist das in der Regel ohne Bedeutung, für ältere Depots aber zu prüfen.
+- **Umrechnung durch Trade Republic:** Trades mit einer Originalwährung außer EUR werden nicht gerechnet (Umrechnung zum EZB-Referenzkurs fehlt noch) und als „nicht berechnet“ gemeldet.
 
 ## Daten
 

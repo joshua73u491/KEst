@@ -9,4 +9,9 @@ if (!file) {
   process.exit(1);
 }
 const year = Number(yearArg ?? new Date().getFullYear());
-console.log(formatReport(computeYear(parseTradeRepublicCsv(readFileSync(file, "utf8")), year)));
+try {
+  console.log(formatReport(computeYear(parseTradeRepublicCsv(readFileSync(file, "utf8")), year)));
+} catch (e) {
+  console.error(`Auswertung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
+  process.exit(1);
+}

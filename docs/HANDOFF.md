@@ -48,14 +48,18 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - Reihenfolge Verlustausgleich mit Dividenden und Kürzung der Quellensteuer.
 - Vorzeichen von KZ 892/896/176 in FinanzOnline.
 - Grenze Berechnungstool vs. Steuerberatung; reicht der Kriterien-Check der Rücklage?
+- Kauf und Verkauf derselben ISIN mit identischem Zeitstempel bei bereits vorhandenem Bestand: In welcher Reihenfolge fließen sie in den gleitenden Durchschnittspreis ein? Derzeit Annahme „Kauf zuerst“ (Review 18.11.2026).
+- Falls Trade Republic in Österreich Steuern einbehält (Spalte `tax`, z. B. nach einer Umstellung auf steuereinfach): Wie sind diese Beträge in E1kv und Rücklage zu berücksichtigen? Derzeit nur Hinweis, keine Anrechnung.
 
 ## Stand des Codes
 
-- Phase 1 (Rechenkern) weitgehend fertig, 50 Tests grün. Module: siehe README-Tabelle.
+- Phase 1 (Rechenkern) weitgehend fertig, 50 Tests grün (Stand vor dem Review). Module: siehe README-Tabelle.
 - Trade-Republic-CSV-Import (`src/import/tradeRepublic.ts`), Jahresauswertung (`src/yearReport.ts`), Textbericht (`npm run report`), Web-App (`npm run build:web`).
 - Getestet mit Joshuas echtem Export (liegt **nur** lokal unter `data/private/`, nie committen). Ergebnis 2026: KZ 892 3,52 €, KZ 995 1,99 €, KZ 896 0,08 €, KZ 174 0,19 €, KZ 861 0,01 €, Steuer 0 €, 1,42 € Verlust übrig. Handrechnung stimmt.
 - Der echte Export enthält nur: TRADING BUY/SELL (STOCK, DERIVATIVE, CRYPTO), DELIVERY FREE_DELIVERY (Krypto ins Wallet), CASH INTEREST_PAYMENT sowie Karten-/Überweisungsbuchungen. **Kein Dividenden-Beispiel**: Buchungstyp für Dividenden bei Trade Republic ist noch unbekannt und wird bewusst als „Unbekannter Buchungstyp“ gemeldet.
 - Offen: PR #1 (`trade-republic-import`) ist noch nicht gemergt.
+- Review und Härtung (Branch `review-haertung`, PR gegen `trade-republic-import`): BOM, falsche/leere Datei, ungültige Zahlen und Daten, gleicher Zeitstempel, fehlender Bestand („nicht berechnet“ statt Abbruch), Übertrag größer als Bestand, Hinweise für Fonds/ETF und Spalte `tax`; Web-App zeigt Fehler klar und lässt keine alten Zahlen stehen. 77 Tests grün.
+- Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011), keine Dividenden aus dem Trade-Republic-Export. Hinweise unter „Nicht berechnet“ erscheinen in jedem Jahr, nicht nur im betroffenen.
 
 ## Roadmap (Kurzform)
 

@@ -27,6 +27,19 @@ export interface RealizedGain {
   gainEur: Dec;
 }
 
+/** Verkauf oder Übertrag von mehr Stück, als im Bestand sind. Die Position bleibt unverändert. */
+export class InsufficientPositionError extends Error {
+  constructor(
+    readonly trade: Trade,
+    readonly available: Dec,
+  ) {
+    super(
+      `${trade.side === "sell" ? "Verkauf" : "Übertrag"} von ${dec(trade.quantity).toString()} Stück ${trade.isin} am ${trade.date} übersteigt den Bestand von ${available.toString()}`,
+    );
+    this.name = "InsufficientPositionError";
+  }
+}
+
 /**
  * Führt Bestände nach dem gleitenden Durchschnittspreis (§ 27a Abs 4 Z 3 EStG),
  * getrennt je ISIN und Depot. FIFO ist in Österreich nicht zulässig.
@@ -46,11 +59,7 @@ export class Positions {
       return null;
     }
 
-    if (quantity.gt(pos.quantity)) {
-      throw new Error(
-        `${trade.side === "sell" ? "Verkauf" : "Übertrag"} von ${quantity.toString()} Stück ${trade.isin} am ${trade.date} übersteigt den Bestand von ${pos.quantity.toString()}`,
-      );
-    }
+    if (quantity.gt(pos.quantity)) throw new InsufficientPositionError(trade, pos.quantity);
     const costSold = quantity.eq(pos.quantity) ? pos.costEur : pos.costEur.div(pos.quantity).times(quantity);
     const rest = pos.quantity.minus(quantity);
     this.book.set(key, { quantity: rest, costEur: rest.isZero() ? ZERO : pos.costEur.minus(costSold) });

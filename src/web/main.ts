@@ -1,9 +1,10 @@
 import sampleCsv from "../../test/fixtures/tr-beispiel.csv";
 import { dec, D, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
-import { parseTradeRepublicCsv, type ImportResult } from "../import/tradeRepublic.js";
+import type { ImportResult } from "../import/tradeRepublic.js";
 import { reserveTarget } from "../reserve.js";
 import { computeYear, type YearReport } from "../yearReport.js";
+import { readExport } from "./readExport.js";
 
 interface State {
   data: ImportResult | null;
@@ -24,22 +25,50 @@ function yearsOf(data: ImportResult): number[] {
   const ys = new Set<number>();
   for (const t of data.trades) if (t.side === "sell") ys.add(Number(t.date.slice(0, 4)));
   for (const i of data.interest) ys.add(Number(i.date.slice(0, 4)));
+  ys.delete(NaN);
   if (ys.size === 0) ys.add(new Date().getFullYear());
   return [...ys].sort((a, b) => b - a);
 }
 
 function load(text: string, source: string, isSample: boolean) {
-  try {
-    const data = parseTradeRepublicCsv(text);
-    state.data = data;
-    state.source = source;
-    state.isSample = isSample;
+  const r = readExport(text);
+  state.source = source;
+  state.isSample = isSample;
+  if (r.ok) {
+    state.data = r.data;
     state.error = "";
-    state.year = yearsOf(data)[0] ?? state.year;
-  } catch (e) {
-    state.error = e instanceof Error ? e.message : String(e);
+    state.year = yearsOf(r.data)[0] ?? state.year;
+  } else {
+    // Keine alten Zahlen neben einer neuen Datei stehen lassen.
+    state.data = null;
+    state.error = r.message;
   }
   render();
+}
+
+function fail(message: string) {
+  state.data = null;
+  state.error = message;
+  render();
+}
+
+/** Zeigt statt der Auswertung einen klaren Leerzustand; die Seite bleibt bedienbar. */
+function renderEmpty() {
+  $("source").innerHTML = state.source
+    ? `Nicht ausgewertet: <b>${esc(state.source)}</b>`
+    : "Noch keine Datei geladen.";
+  $("year").innerHTML = "";
+  $("yearLabel").textContent = "–";
+  $("reserve").textContent = "–";
+  $("reserveNote").textContent = "Keine Auswertung. Wähle deinen Trade-Republic-Export oder sieh dir die Beispieldaten an.";
+  $("bufferOut").textContent = `${state.bufferPct} %`;
+  $("figs").innerHTML = "";
+  $("bars").innerHTML = `<li class="empty">Keine Daten.</li>`;
+  $("kz").innerHTML = `<tr><td colspan="3" class="empty">Keine Daten.</td></tr>`;
+  $("open").innerHTML = `<tr><td colspan="4" class="empty">Keine Daten.</td></tr>`;
+  $("todo").hidden = true;
+  $("todoList").innerHTML = "";
+  $("copy").onclick = null;
 }
 
 function kzRows(r: YearReport): Array<[string, string, Dec]> {
@@ -58,16 +87,18 @@ function kzRows(r: YearReport): Array<[string, string, Dec]> {
 
 function render() {
   $("error").hidden = !state.error;
-  $("error").textContent = state.error ? `Die Datei konnte nicht gelesen werden: ${state.error}` : "";
+  $("error").textContent = state.error;
   const data = state.data;
-  if (!data) return;
+  if (!data) {
+    renderEmpty();
+    return;
+  }
 
   let report: YearReport;
   try {
     report = computeYear(data, state.year);
   } catch (e) {
-    $("error").hidden = false;
-    $("error").textContent = `Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`;
+    fail(`Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
     return;
   }
   const tax = report.tax275Eur.plus(report.tax25Eur);
@@ -86,11 +117,16 @@ function render() {
     .join("");
   $("yearLabel").textContent = String(state.year);
   $("reserve").textContent = formatEur(reserve);
-  $("reserveNote").textContent = tax.toDecimalPlaces(2).isZero()
-    ? report.unusedLossEur.gt(0)
-      ? `Keine Steuer: ${formatEur(report.unusedLossEur)} Verlust bleibt übrig. Er verfällt am Jahresende.`
-      : "Noch keine steuerpflichtigen Erträge in diesem Jahr."
-    : `${formatEur(tax)} Steuer plus ${state.bufferPct} % Sicherheitspuffer.`;
+  const open = report.notComputed.length;
+  $("reserveNote").textContent =
+    (tax.toDecimalPlaces(2).isZero()
+      ? report.unusedLossEur.gt(0)
+        ? `Keine Steuer: ${formatEur(report.unusedLossEur)} Verlust bleibt übrig. Er verfällt am Jahresende.`
+        : "Noch keine steuerpflichtigen Erträge in diesem Jahr."
+      : `${formatEur(tax)} Steuer plus ${state.bufferPct} % Sicherheitspuffer.`) +
+    (open > 0
+      ? ` Achtung: ${open} ${open === 1 ? "Hinweis" : "Hinweise"} unten unter „Nicht berechnet“, das Ergebnis kann unvollständig sein.`
+      : "");
   $("bufferOut").textContent = `${state.bufferPct} %`;
 
   const figs: Array<[string, Dec]> = [
@@ -146,20 +182,38 @@ function render() {
 }
 
 function readFile(file: File) {
-  file.text().then((t) => load(t, file.name, false), () => load("", file.name, false));
+  file.text().then(
+    (t) => load(t, file.name, false),
+    () => {
+      state.source = file.name;
+      state.isSample = false;
+      fail("Die Datei konnte nicht geöffnet werden. Bitte wähle sie noch einmal aus.");
+    },
+  );
 }
 
 {
   const drop = $("drop");
   const input = $<HTMLInputElement>("file");
-  input.addEventListener("change", () => input.files?.[0] && readFile(input.files[0]));
+  input.addEventListener("change", () => {
+    if (input.files?.[0]) readFile(input.files[0]);
+    input.value = ""; // dieselbe Datei nach einer Korrektur erneut wählbar
+  });
   drop.addEventListener("dragover", (e) => {
     e.preventDefault();
     drop.classList.add("over");
   });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  // Daneben fallen gelassene Dateien nicht vom Browser öffnen lassen: die Seite würde sonst verlassen.
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const f = e.dataTransfer?.files?.[0];
+    if (f) readFile(f);
+  });
   drop.addEventListener("drop", (e) => {
     e.preventDefault();
+    e.stopPropagation();
     drop.classList.remove("over");
     const f = e.dataTransfer?.files?.[0];
     if (f) readFile(f);
