@@ -39,6 +39,8 @@ export interface ImportedTrade {
   convert?: ForeignAmount & { fees: ForeignAmount[] };
   kind: AssetKind;
   name: string;
+  /** Dateiname, wenn mehrere Dateien zusammengeführt wurden */
+  file?: string;
 }
 
 export interface ImportedTransfer {
@@ -50,6 +52,7 @@ export interface ImportedTransfer {
   datetime: string;
   quantity: string;
   kind: AssetKind;
+  file?: string;
 }
 
 export interface ImportedInterest {
@@ -70,6 +73,7 @@ export interface ImportedInterest {
   isin: string;
   /** Betrag in Fremdwährung, wird zum EZB-Referenzkurs im Zuflusszeitpunkt umgerechnet */
   convert?: ForeignAmount;
+  file?: string;
 }
 
 /**
@@ -101,6 +105,7 @@ export interface ImportedDividend {
   withheldOriginal: string;
   /** Umrechnungskurs des Brokers (Trade Republic, Spalte `fx_rate`, EUR je Einheit Fremdwährung), leer wenn nicht angegeben */
   brokerFxRate: string;
+  file?: string;
 }
 
 /** Bestand laut Broker zu einem Stichtag (IBKR OpenPositions), zum Abgleich mit dem berechneten Bestand. */
@@ -110,12 +115,15 @@ export interface ReportedPosition {
   depot: string;
   quantity: string;
   date: string;
+  file?: string;
 }
 
 export interface Unsupported {
   line: number;
   type: string;
   reason: string;
+  /** Dateiname, wenn mehrere Dateien zusammengeführt wurden */
+  file?: string;
   /**
    * Übersprungene Buchung, die den Bestand dieser Position verändert hätte.
    * Spätere Abgänge derselben Position werden dann nicht mehr gerechnet.

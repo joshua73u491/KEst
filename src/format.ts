@@ -80,7 +80,7 @@ export function formatReport(r: YearReport): string {
   );
   if (r.notComputed.length > 0) {
     out.push("", "Nicht berechnet – bitte prüfen");
-    out.push(...r.notComputed.map((n) => `Zeile ${n.line}: ${n.type} – ${n.reason}`));
+    out.push(...r.notComputed.map((n) => `${n.file ? `${n.file}, ` : ""}Zeile ${n.line}: ${n.type} – ${n.reason}`));
   }
   return out.join("\n");
 }

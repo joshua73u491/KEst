@@ -14,13 +14,15 @@ export interface Sections {
   cash?: Attrs[] | null;
   positions?: Attrs[] | null;
   account?: string;
+  /** Ende des Zeitraums, JJJJMMTT */
+  toDate?: string;
 }
 
-export function ibkrXml({ trades = [], cash = [], positions = [], account = "U0000000" }: Sections = {}): string {
+export function ibkrXml({ trades = [], cash = [], positions = [], account = "U0000000", toDate = "20261231" }: Sections = {}): string {
   const lines = [
     '<FlexQueryResponse queryName="KESt" type="AF">',
     '<FlexStatements count="1">',
-    `<FlexStatement accountId="${account}" fromDate="20260101" toDate="20261231" period="YearToDate" whenGenerated="20270102;080000">`,
+    `<FlexStatement accountId="${account}" fromDate="20260101" toDate="${toDate}" period="YearToDate" whenGenerated="20270102;080000">`,
   ];
   const section = (name: string, child: string, rows: Attrs[] | null) => {
     if (rows === null) return;

@@ -104,6 +104,10 @@ export interface YearReport {
   notComputed: Unsupported[];
 }
 
+/** Fundstelle einer Buchung: Zeile und, wenn mehrere Dateien zusammengeführt wurden, die Datei */
+type Where = { line: number; file?: string };
+const at = (w: Where): Where => (w.file === undefined ? { line: w.line } : { line: w.line, file: w.file });
+
 const withheldNote = (withheld: Dec) =>
   `Trade Republic hat ${formatEur(withheld)} Steuer einbehalten (Spalte tax). Bei einem Konto ohne KESt-Abzug wird sie nicht angerechnet. Ist dein Konto steuereinfach, gib an, seit wann.`;
 
@@ -161,13 +165,13 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
    * Verkauf oder Übertrag mit fehlendem Bestand: nie schätzen. Die Buchung und alle späteren Abgänge
    * derselben Position werden als „nicht berechnet“ gemeldet, die übrige Auswertung läuft weiter.
    */
-  const applyChecked = (trade: Trade, line: number, type: string) => {
+  const applyChecked = (trade: Trade, where: Where, type: string) => {
     const key = `${trade.depot}|${trade.isin}`;
     const brokenSince = broken.get(key);
     if (brokenSince !== undefined) {
       if (trade.side !== "buy") {
         notComputed.push({
-          line,
+          ...at(where),
           type,
           reason: `Bestand von ${trade.isin} ist seit Zeile ${brokenSince} unvollständig; ${trade.side === "sell" ? "Gewinn" : "Übertrag"} nicht berechnet`,
         });
@@ -178,9 +182,9 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       return positions.apply(trade);
     } catch (e) {
       if (!(e instanceof InsufficientPositionError)) throw e;
-      broken.set(key, line);
+      broken.set(key, where.line);
       notComputed.push({
-        line,
+        ...at(where),
         type,
         reason:
           `${trade.side === "sell" ? "Verkauf" : "Übertrag"} von ${dec(trade.quantity).toString()} Stück ${trade.isin} am ${trade.date} ` +
@@ -204,11 +208,11 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
         const t = tradeInEur(original);
         if (typeof t === "string") {
           // Ohne Kurs kein Trade: der Bestand dieser Position ist ab hier unsicher.
-          notComputed.push({ line: original.line, type, reason: t });
+          notComputed.push({ ...at(original), type, reason: t });
           markBroken(original.depot, original.isin, original.line);
           return;
         }
-        const r = applyChecked(t, t.line, type);
+        const r = applyChecked(t, t, type);
         if (!inYear(t.date)) return;
         feesEur = feesEur.plus(t.feeEur);
         const withheld = dec(t.withheldEur);
@@ -218,14 +222,14 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
           }
           return;
         }
-        if (!withheld.isZero()) notComputed.push({ line: t.line, type, reason: withheldNote(withheld) });
+        if (!withheld.isZero()) notComputed.push({ ...at(t), type, reason: withheldNote(withheld) });
         if (r) realized.push({ isin: t.isin, name: t.name, date: t.date, kind: t.kind, gainEur: r.gainEur });
       },
     })),
     ...data.transfersOut.map((t) => ({
       at: t.datetime || t.date,
       rank: rank("transfer_out"),
-      apply: () => void applyChecked({ ...t, side: "transfer_out", amountEur: "0" }, t.line, "DELIVERY/FREE_DELIVERY"),
+      apply: () => void applyChecked({ ...t, side: "transfer_out", amountEur: "0" }, t, "DELIVERY/FREE_DELIVERY"),
     })),
   ];
   // Übersprungene Bestandsbuchungen: ab diesem Zeitpunkt ist der Bestand der Position unsicher.
@@ -242,7 +246,7 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       rank: 0,
       apply: () => {
         notComputed.push({
-          line: d.line,
+          ...at(d),
           type: "CASH/DIVIDEND_EQUIVALENT_PAYMENT",
           reason:
             `Kapitalausschüttung von ${d.isin} (${formatEur(d.grossEur)}): Ob es eine Dividende oder eine Einlagenrückzahlung ist, ` +
@@ -260,7 +264,7 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     const app = positions.get(p.isin, p.depot).quantity;
     if (app.eq(p.quantity)) continue;
     notComputed.push({
-      line: p.line,
+      ...at(p),
       type: "OpenPosition",
       reason:
         `Bestand von ${p.isin} laut ${p.depot.split(" ")[0]} am ${p.date}: ${dec(p.quantity).toString()} Stück, laut App: ${app.toString()} Stück. ` +
@@ -281,7 +285,7 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       continue;
     }
     if (d.kind === "capitalDistribution") continue; // oben gemeldet
-    const skip = (reason: string) => notComputed.push({ line: d.line, type, reason });
+    const skip = (reason: string) => notComputed.push({ ...at(d), type, reason });
     if (d.kind === "fund") {
       // § 186 Abs. 1, Abs. 2 Z 2 und Z 3 InvFG 2011: https://www.jusline.at/gesetz/invfg_2011/paragraf/186
       skip(
@@ -377,16 +381,16 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
       continue;
     }
     if (i.isin !== "") {
-      notComputed.push({ line: i.line, type, reason: `Zinsen aus dem Wertpapier ${i.isin} (KZ 863) werden noch nicht berechnet.` });
+      notComputed.push({ ...at(i), type, reason: `Zinsen aus dem Wertpapier ${i.isin} (KZ 863) werden noch nicht berechnet.` });
       continue;
     }
     // Zinsen in Fremdwährung: EZB-Referenzkurs im Zuflusszeitpunkt (EStR 2000 Rz 6201c)
     const amount = i.convert ? ecbToEur(i.convert.amount, i.convert.currency, i.date, "Zinsen") : dec(i.amountEur);
     if (typeof amount === "string") {
-      notComputed.push({ line: i.line, type, reason: amount });
+      notComputed.push({ ...at(i), type, reason: amount });
       continue;
     }
-    if (!withheld.isZero()) notComputed.push({ line: i.line, type, reason: withheldNote(withheld) });
+    if (!withheld.isZero()) notComputed.push({ ...at(i), type, reason: withheldNote(withheld) });
     if (i.source === "broker") {
       brokerInterestEur = brokerInterestEur.plus(amount);
       // KZ 863: im 27,5 %-Topf mit Verlustausgleich; ohne Quellensteuer

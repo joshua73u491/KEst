@@ -12,6 +12,8 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | --- | --- |
 | `src/fx.ts` | Umrechnung in EUR zum EZB-Referenzkurs; austauschbare Kursquelle (`RateSource`), Einlesen der EZB-Kursdateien |
 | `src/web/loadRates.ts` | Abruf der EZB-Referenzkurse in der Web-App (nur Währung und Zeitraum) |
+| `src/history.ts` | Lokale Steuerhistorie: Dateien und Einstellungen, Zusammenführen mehrerer Dateien und Broker (Duplikate über die Transaktions-ID), Backup als JSON |
+| `src/web/storage.ts` | Dauerhafte Speicherung der Historie im Browser (IndexedDB) |
 | `src/costBasis.ts` | Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG) |
 | `src/basket275.ts` | 27,5 %-Topf: KZ 994, 892, 863, 998, Verlustausgleich, Quellensteuer-Anrechnung |
 | `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
@@ -23,7 +25,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Noch offen in Phase 1: lokale Historie, Prüfassistent.
+Noch offen in Phase 1: Prüfassistent.
 
 ## Entwickeln
 
@@ -35,6 +37,7 @@ npm run report -- data/private/<Export>.csv 2026   # Auswertung einer echten Dat
 npm run report -- data/private/<Export>.csv 2026 --steuereinfach-seit JJJJ-MM-TT   # Konto mit KESt-Abzug durch Trade Republic
 npm run report -- data/private/<Export>.csv 2026 --ezb-kurse <eurofxref-hist.csv>   # Dividenden in Fremdwährung
 npm run report -- data/private/<Flex>.xml 2026 --ezb-kurse <eurofxref-hist.csv> [--ibkr-zinsen 861]   # IBKR
+npm run report -- data/private/a.csv data/private/b.csv data/private/ib.xml 2026   # mehrere Dateien zusammenführen
 ```
 
 IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.
@@ -75,3 +78,5 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 ## Daten
 
 Echte Broker-Exporte gehören nach `data/private/` und werden **nie** committet (siehe `.gitignore`).
+
+**Lokale Historie (Web-App):** Importierte Dateien und Einstellungen (steuereinfach seit, Kennzahl für IBKR-Zinsen, Puffer) werden nur im Browser gespeichert (IndexedDB), kein Konto, kein Server. Gespeichert werden die Originaldateien; bei jeder Auswertung werden die Zeilen aller Dateien je Broker zusammengeführt, Duplikate über die Transaktions-ID erkannt (Trade Republic `transaction_id`, IBKR `transactionID` samt Detailstufe; ohne ID über den vollständigen Zeileninhalt) und dann gemeinsam ausgewertet. So werden Stornos und Korrekturen auch über Dateigrenzen verrechnet. Bei IBKR liefert der Auszug mit dem spätesten Enddatum je Konto den Bestandsabgleich. Dieselbe Datei wird nicht zweimal gespeichert. Das Backup (JSON) enthält Dateien und Einstellungen; beim Wiederherstellen werden die Dateien ergänzt, nicht ersetzt, und erneut geprüft. Hinweise nennen bei mehreren Dateien den Dateinamen.
