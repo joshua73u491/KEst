@@ -30,6 +30,8 @@ export interface Settings {
   bufferPct: number;
   /** nicht verbriefte Derivate: Tarif (KZ 857, Standard) oder 27,5 % (KZ 995/896) */
   derivativesTreatment: "tariff" | "special";
+  /** geschätztes zu versteuerndes Einkommen ohne Kapitalerträge, für die Mehrsteuer auf KZ 857; leer = keine Angabe */
+  otherIncomeEur: string;
 }
 
 export interface History {
@@ -37,7 +39,7 @@ export interface History {
   settings: Settings;
 }
 
-export const DEFAULT_SETTINGS: Settings = { taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff" };
+export const DEFAULT_SETTINGS: Settings = { taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff", otherIncomeEur: "" };
 
 export const emptyHistory = (): History => ({ files: [], settings: { ...DEFAULT_SETTINGS } });
 
@@ -193,6 +195,7 @@ export function fromBackup(text: string): History {
     brokerInterestKz: s.brokerInterestKz === "861" ? "861" : "863",
     bufferPct: typeof s.bufferPct === "number" && s.bufferPct >= 0 && s.bufferPct <= 100 ? s.bufferPct : DEFAULT_SETTINGS.bufferPct,
     derivativesTreatment: s.derivativesTreatment === "special" ? "special" : "tariff",
+    otherIncomeEur: typeof s.otherIncomeEur === "string" && /^(\d+(\.\d+)?)?$/.test(s.otherIncomeEur) ? s.otherIncomeEur : "",
   };
   return { files, settings };
 }

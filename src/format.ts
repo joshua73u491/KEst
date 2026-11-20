@@ -67,6 +67,14 @@ export function formatReport(r: YearReport): string {
     line("Bemessungsgrundlage 27,5 %", r.taxableBaseEur),
     line("Steuer 27,5 %", r.tax275Eur),
     line("Steuer 25 % (Bankzinsen)", r.tax25Eur),
+    ...(r.derivativesTreatment === "tariff" && !r.kz857.isZero()
+      ? [
+          line("Mehrsteuer KZ 857 (Tarif)", r.tariffExtraTaxEur),
+          r.otherIncomeEur === null
+            ? "Sonstiges Einkommen: keine Angabe"
+            : `Sonstiges Einkommen (deine Schätzung): ${formatEur(r.otherIncomeEur)}`,
+        ]
+      : []),
     line("Nicht ausgeglichener Verlust", r.unusedLossEur),
     line("Ordergebühren (nicht abziehbar)", r.feesEur),
     "",

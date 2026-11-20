@@ -77,8 +77,17 @@ describe("Ausgabe", () => {
     expect(text).toContain("KZ 857  Optionen/Futures (Tarif)           200,00 €");
     expect(text).toContain("Offene Optionen und Futures (Anzahl, Basis)");
     expect(text).toMatch(/ERF C70 {2}-2 Kontr\. \(Stillhalter\) +300,00 €/);
-    expect(text).toContain("KZ 857 – Die Einkommensteuer auf Einkünfte aus nicht verbrieften Derivaten");
+    expect(text).toContain("KZ 857 – Für die Einkommensteuer auf KZ 857 (200,00 €, Tarif bis 55 %) fehlt die Angabe");
     expect(text).not.toContain("Zeile 0");
+    expect(text).toContain("Mehrsteuer KZ 857 (Tarif)                    0,00 €");
+    expect(text).toContain("Sonstiges Einkommen: keine Angabe");
+  });
+
+  test("Bericht zeigt die Mehrsteuer auf KZ 857 und das angegebene sonstige Einkommen", () => {
+    const xml = ibkrXml({ trades: [ibOption("SELL", "20260301", "ERF P50", "50", "5000"), ibOptionBook("BUY", "20261218", "ERF P50", "50")] });
+    const text = formatReport(computeYear(parseIbkrFlexXml(xml), 2026, { otherIncomeEur: "30000" }));
+    expect(text).toContain("Mehrsteuer KZ 857 (Tarif)                1.500,00 €");
+    expect(text).toContain("Sonstiges Einkommen (deine Schätzung): 30.000,00 €");
   });
 
   test("Bericht nennt Broker-Zinsen und die gewählte Kennzahl", () => {

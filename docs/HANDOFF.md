@@ -39,7 +39,7 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - Quellensteuer nur bis zum DBA-Satz anrechenbar (USA 15 %).
 - Stillhalter: Prämie wird bei Verfall bzw. Glattstellung erfasst.
 - Nicht-Meldefonds: pauschal 90 % der Wertsteigerung, mindestens 10 % des Werts am 31.12.
-- Tarif 2026: 0 % bis 13.539 €, 20 % bis 21.992 €, 30 % bis 36.458 €, 40 % bis 70.365 €, 48 % bis 104.859 €, 50 % bis 1 Mio. €, darüber 55 %.
+- Tarif 2026: 0 % bis 13.539 €, 20 % bis 21.992 €, 30 % bis 36.458 €, 40 % bis 70.365 €, 48 % bis 104.859 €, 50 % bis 1 Mio. €, darüber 55 % (laut BMF bestätigt; 2024 und 2025 ebenfalls in `src/tariff.ts`). Der Tarif 2027 ist noch nicht veröffentlicht und muss nachgetragen werden, sobald das BMF ihn nennt.
 
 ## Offene Fragen an Steuerberater/Anwalt (nicht selbst entscheiden)
 
@@ -82,6 +82,7 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - **Schritt 1.5 (Branch `schritt-1.5-pruefassistent`, baut auf 1.4 auf):** Prüfassistent „Buchungen prüfen“ (`src/check.ts`, `checkBookings`): Verkauf ohne Bestand, Übertrag größer als Bestand, doppelte Buchungen, Lücken im Exportzeitraum (Zeiträume je Datei aus `filePeriods`), Fremdwährung ohne EZB-Kurs, unbekannte Buchungstypen, Bestand nahe 0 durch Rundung. Schweregrad Fehler/Warnung/Hinweis, Klartext und Fundstellen. Anzeige in der Web-App über der Auswertung und im Bericht. 217 Tests grün.
 - **Gate 1 freigegeben** von Joshua am 20.11.2026 (Abgleich 2025 mit DepotTax/Tax-Wizard laut Joshua stimmig). PRs #3 bis #7 sind noch offen und bauen aufeinander auf.
 - **Schritt 2.1 (Branch `schritt-2.1-derivate`, baut auf 1.5 auf):** Nicht verbriefte Derivate (`src/derivatives.ts`): IBKR-Optionen und -Futures mit Long/Short je Kontrakt, Stillhalter (Prämie erst bei Verfall/Glattstellung/Ausübung), Ausübung und Zuteilung mit Übertrag der Prämie auf die Aktie (EStR Rz 6174a, 6176), Erkennung über IBKR-Codes und Aktienbuchung, Einstellung Tarif (KZ 857, Standard) oder 27,5 % (KZ 995/896). Testfälle 4 und 5 aus dem PRODUKTPLAN. Geprüft gegen die echten anonymisierten Flex-Dateien von Portfolio Performance: eine Zuteilung ohne eingelesene Aktienbuchung wird korrekt „nicht berechnet“ statt als Verfall. 244 Tests grün.
+- **Schritt 2.2 (Branch `schritt-2.2-tarif`, baut auf 2.1 auf):** Mehrsteuer auf KZ 857 über `src/tariff.ts` mit Tarif je Jahr (2024–2026 laut BMF, Stand 01.01.2026; 2027 noch nicht veröffentlicht), sonstiges Einkommen als Einstellung (nur bei Optionen/Futures abgefragt; ohne Angabe Hinweis statt Schätzung). Die Rücklage enthält jetzt die Mehrsteuer. 258 Tests grün.
 - Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, keine Fondsausschüttungen, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011). Import-Hinweise unter „Nicht berechnet“ erscheinen weiterhin in jedem Jahr, nicht nur im betroffenen.
 
 ## Roadmap (Kurzform)

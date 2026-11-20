@@ -143,17 +143,58 @@ describe("Futures, Einstellung und Grenzfälle", () => {
     expect(year(2026, trades, { derivativesTreatment: "special" }).kz995.toString()).toBe("150");
   });
 
-  test("positive KZ 857: Hinweis, dass die Einkommensteuer darauf noch nicht gerechnet wird", () => {
+  test("positive KZ 857 ohne Angabe des sonstigen Einkommens: Hinweis statt Schätzung", () => {
     const r = year(2026, [ibOption("SELL", "20260915", "ERF P50", "1", "200"), ibOptionBook("BUY", "20261218", "ERF P50", "1")]);
+    expect(r.tariffExtraTaxEur.toString()).toBe("0");
     expect(r.notComputed).toEqual([
       {
         line: 0,
         type: "KZ 857",
         reason:
-          "Die Einkommensteuer auf Einkünfte aus nicht verbrieften Derivaten (KZ 857, 200,00 €, Tarif bis 55 %) rechnet die App noch nicht. " +
-          "Die Rücklage enthält sie nicht.",
+          "Für die Einkommensteuer auf KZ 857 (200,00 €, Tarif bis 55 %) fehlt die Angabe deines sonstigen Einkommens. " +
+          "Ohne sie wird die Mehrsteuer nicht berechnet, und die Rücklage enthält sie nicht.",
       },
     ]);
+  });
+});
+
+describe("Tarif-Schätzung für KZ 857 (Schritt 2.2)", () => {
+  // Mehrsteuer = ESt(sonstiges Einkommen + KZ 857) − ESt(sonstiges Einkommen), Tarif des Jahres (src/tariff.ts)
+  const shortPutExpires = (y: string) => [ibOption("SELL", `${y}0301`, "ERF P50", "50", "5000", { expiry: `${y}1218` }), ibOptionBook("BUY", `${y}1218`, "ERF P50", "50", { expiry: `${y}1218` })];
+
+  test("2026: 30.000 € sonstiges Einkommen, 5.000 € Prämie -> 1.500 € Mehrsteuer", () => {
+    const r = year(2026, shortPutExpires("2026"), { otherIncomeEur: "30000" });
+    expect(r.kz857.toString()).toBe("5000");
+    expect(r.tariffExtraTaxEur.toString()).toBe("1500");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("2025 mit dem Tarif 2025: 33.000 € + 5.000 € -> 1.716,40 €", () => {
+    expect(year(2025, shortPutExpires("2025"), { otherIncomeEur: "33000" }).tariffExtraTaxEur.toString()).toBe("1716.4");
+  });
+
+  test("Jahr ohne hinterlegten Tarif (2027): nicht berechnet", () => {
+    const r = year(2027, shortPutExpires("2027"), { otherIncomeEur: "30000" });
+    expect(r.tariffExtraTaxEur.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toBe(
+      "Der Einkommensteuertarif 2027 ist in der App noch nicht hinterlegt. Die Mehrsteuer auf KZ 857 (5.000,00 €) wird nicht berechnet.",
+    );
+  });
+
+  test("Einstellung 27,5 %: keine Mehrsteuer nach Tarif", () => {
+    const r = year(2026, shortPutExpires("2026"), { otherIncomeEur: "30000", derivativesTreatment: "special" });
+    expect(r.tariffExtraTaxEur.toString()).toBe("0");
+  });
+
+  test("Verlust in KZ 857: keine Mehrsteuer, kein Hinweis", () => {
+    const r = year(2026, [ibOption("BUY", "20260301", "ERF P50", "1", "120"), ibOptionBook("SELL", "20261218", "ERF P50", "1")], { otherIncomeEur: "30000" });
+    expect(r.kz857.toString()).toBe("-120");
+    expect(r.tariffExtraTaxEur.toString()).toBe("0");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("ungültige Angabe des sonstigen Einkommens wird abgelehnt", () => {
+    expect(() => year(2026, shortPutExpires("2026"), { otherIncomeEur: "dreißigtausend" })).toThrow(/sonstige Einkommen/);
   });
 
   test("Schließung ohne bekannte Eröffnung (vor dem Exportzeitraum) wird nicht berechnet", () => {

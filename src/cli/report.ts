@@ -9,7 +9,7 @@ import { computeYear, type YearOptions } from "../yearReport.js";
 
 const USAGE =
   "Aufruf: npm run report -- <Datei> [weitere Dateien …] [Jahr] [--steuereinfach-seit JJJJ-MM-TT] " +
-  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861] [--derivate tarif|275]\n" +
+  "[--ezb-kurse <eurofxref-hist.csv>] [--ibkr-zinsen 863|861] [--derivate tarif|275] [--sonstiges-einkommen 30000]\n" +
   "Dateien: Trade-Republic-CSV oder IBKR-Flex-XML; mehrere werden zusammengeführt, Duplikate zählen nur einmal.";
 
 let positionals: string[] = [];
@@ -22,6 +22,7 @@ try {
       "ezb-kurse": { type: "string" },
       "ibkr-zinsen": { type: "string" },
       derivate: { type: "string" },
+      "sonstiges-einkommen": { type: "string" },
     },
   });
   positionals = parsed.positionals;
@@ -62,6 +63,8 @@ try {
     if (derivate !== "tarif" && derivate !== "275") throw new Error(`--derivate erwartet tarif oder 275, nicht „${derivate}“.`);
     options.derivativesTreatment = derivate === "275" ? "special" : "tariff";
   }
+  const otherIncome = values["sonstiges-einkommen"];
+  if (otherIncome !== undefined) options.otherIncomeEur = otherIncome;
   const checkInput: CheckInput = { data, duplicates, periods: filePeriods(history) };
   if (options.rates) checkInput.rates = options.rates;
   if (options.taxSimpleSince) checkInput.taxSimpleSince = options.taxSimpleSince;

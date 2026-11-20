@@ -75,7 +75,8 @@ dt{font-size:13px;color:color-mix(in srgb,var(--on) 86%,transparent)}
 dd{margin:2px 0 0;font-size:26px;white-space:nowrap}
 .ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:18px}
 .ctrl label{font-size:14px;display:flex;gap:8px;align-items:center}
-select,input[type=date]{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:0;padding:0 12px;background:var(--on);color:#0b0b10;color-scheme:light}
+#otherIncome{width:9em}
+select,input[type=date],input[type=number]{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:0;padding:0 12px;background:var(--on);color:#0b0b10;color-scheme:light}
 input[type=range]{accent-color:#0b0b10;width:150px;height:44px}
 .grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(24px,4vw,56px)}
 .sub{color:var(--soft);font-size:14px;margin:0 0 14px}
@@ -170,6 +171,7 @@ code{font-size:13px;overflow-wrap:anywhere}
         <label>Sicherheitspuffer <input id="buffer" type="range" min="0" max="30" step="5" value="10"> <b id="bufferOut">10 %</b></label>
         <label title="Leer lassen, wenn Trade Republic bei dir keine KESt abzieht">Steuereinfach seit <input id="since" type="date"></label>
         <label id="derivSetting" hidden title="Offene Frage an den Steuerberater: Tarif (KZ 857) oder 27,5 % (KZ 995/896)">Optionen/Futures <select id="derivTreatment"><option value="tariff">Tarif · KZ 857</option><option value="special">27,5 % · KZ 995/896</option></select></label>
+        <label id="incomeSetting" hidden title="Dein geschätztes zu versteuerndes Jahreseinkommen ohne Kapitalerträge (z. B. Gehalt nach Sozialversicherung, Gewinn aus einem Betrieb). Daraus ergibt sich der Steuersatz für Optionen und Futures.">Sonstiges Einkommen <input id="otherIncome" type="number" min="0" step="100" inputmode="decimal" placeholder="z. B. 30000"> €</label>
         <label id="kzSetting" hidden title="Offene Frage an den Steuerberater: KZ 863 (27,5 %) oder KZ 861 (25 %)">IBKR-Zinsen <select id="ibkrKz"><option value="863">KZ 863 · 27,5 %</option><option value="861">KZ 861 · 25 %</option></select></label>
       </div>
     </div>
