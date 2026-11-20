@@ -1,102 +1,19 @@
 import { dec, type Dec } from "../decimal.js";
 import { formatEur } from "../format.js";
 import { parseCsvTable } from "./csv.js";
+import type { AssetKind, DistributionKind, ImportedDividend, ImportedTrade, ImportResult, Unsupported } from "./model.js";
 
-/** Steuertopf eines Wertpapiers. */
-export type AssetKind = "security" | "securitizedDerivative" | "crypto";
-
-export interface ImportedTrade {
-  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
-  line: number;
-  isin: string;
-  depot: string;
-  date: string;
-  datetime: string;
-  side: "buy" | "sell";
-  quantity: string;
-  /** Kurswert in EUR ohne Spesen */
-  amountEur: string;
-  feeEur: string;
-  /** von Trade Republic einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten, negativ = gutgeschrieben) */
-  withheldEur: string;
-  /**
-   * Handelswährung, wenn nicht EUR. `amountEur` ist dann der Betrag, den Trade Republic tatsächlich umgerechnet hat;
-   * bei tatsächlicher Konvertierung zählt dieser Kurs (EStR 2000 Rz 6201c, Annahme im README).
-   */
-  originalCurrency: string;
-  kind: AssetKind;
-  name: string;
-}
-
-export interface ImportedTransfer {
-  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
-  line: number;
-  isin: string;
-  depot: string;
-  date: string;
-  datetime: string;
-  quantity: string;
-  kind: AssetKind;
-}
-
-export interface ImportedInterest {
-  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
-  line: number;
-  date: string;
-  amountEur: string;
-  /** einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten) */
-  withheldEur: string;
-  /** gesetzt bei Zinsen aus einem Wertpapier (z. B. Anleihe), leer bei Zinsen auf dem Verrechnungskonto */
-  isin: string;
-}
-
-/**
- * Art der Ausschüttung laut Export:
- * - `stock`: Dividende einer Aktie (Buchungstyp DIVIDEND, Anlageklasse STOCK)
- * - `fund`: Ausschüttung eines Fonds oder ETF (DIVIDEND oder DISTRIBUTION, Anlageklasse FUND/ETF)
- * - `capitalDistribution`: DIVIDEND_EQUIVALENT_PAYMENT („Capital Distribution“), ob Dividende oder Einlagenrückzahlung, ist offen
- */
-export type DistributionKind = "stock" | "fund" | "capitalDistribution";
-
-export interface ImportedDividend {
-  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
-  line: number;
-  isin: string;
-  depot: string;
-  date: string;
-  datetime: string;
-  name: string;
-  kind: DistributionKind;
-  /** Bruttobetrag in EUR (Spalte `amount`) */
-  grossEur: string;
-  /** einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten, negativ = gutgeschrieben) */
-  withheldEur: string;
-  /** Originalwährung laut Export; leer, wenn in EUR ausgeschüttet */
-  originalCurrency: string;
-  /** Bruttobetrag in der Originalwährung (Spalte `original_amount`), leer bei EUR */
-  originalAmount: string;
-  /** Umrechnungskurs von Trade Republic (Spalte `fx_rate`, EUR je Einheit Fremdwährung), leer wenn nicht angegeben */
-  brokerFxRate: string;
-}
-
-export interface Unsupported {
-  line: number;
-  type: string;
-  reason: string;
-  /**
-   * Übersprungene Buchung, die den Bestand dieser Position verändert hätte.
-   * Spätere Abgänge derselben Position werden dann nicht mehr gerechnet.
-   */
-  affects?: { isin: string; depot: string; datetime: string };
-}
-
-export interface ImportResult {
-  trades: ImportedTrade[];
-  transfersOut: ImportedTransfer[];
-  interest: ImportedInterest[];
-  dividends: ImportedDividend[];
-  unsupported: Unsupported[];
-}
+export type {
+  AssetKind,
+  DistributionKind,
+  ImportedDividend,
+  ImportedInterest,
+  ImportedTrade,
+  ImportedTransfer,
+  ImportResult,
+  ReportedPosition,
+  Unsupported,
+} from "./model.js";
 
 const DEPOT = "TR";
 
@@ -205,7 +122,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
   const rows = table.rows.map((row, i) => ({ row, line: i + 2 }));
   rows.sort((a, b) => (a.row.datetime ?? "").localeCompare(b.row.datetime ?? ""));
 
-  const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], unsupported: [] };
+  const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], reportedPositions: [], unsupported: [] };
   const flag = (line: number, type: string, reason: string, affects?: Unsupported["affects"]) =>
     result.unsupported.push(affects ? { line, type, reason, affects } : { line, type, reason });
   const fundsNoted = new Set<string>();
@@ -228,6 +145,8 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
             result.interest.push({
               line,
               date: dateOf(row),
+              depot: DEPOT,
+              source: "bank",
               amountEur: num(row, "amount").toString(),
               withheldEur: withheldOf(row),
               isin: symbol.trim(),
@@ -261,6 +180,7 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
             withheldEur: withheldOf(row),
             originalCurrency,
             originalAmount: originalCurrency !== "" && (row.original_amount ?? "").trim() !== "" ? num(row, "original_amount").toString() : "",
+            withheldOriginal: "",
             brokerFxRate: originalCurrency !== "" && (row.fx_rate ?? "").trim() !== "" ? num(row, "fx_rate").toString() : "",
           };
           if (gross.lt(0)) reversals.push({ dividend: entry, label });

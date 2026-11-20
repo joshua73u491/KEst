@@ -18,9 +18,12 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/tariff.ts` | Einkommensteuertarif 2026 und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
+| `src/import/ibkrFlex.ts` | Import einer IBKR Activity Flex Query (XML): Trades, CashTransactions, OpenPositions |
+| `src/import/model.ts`, `src/import/readAny.ts` | Gemeinsames Datenmodell aller Importe; Erkennung des Brokers am Dateiinhalt |
+| `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Noch offen in Phase 1: IBKR-Import, lokale Historie, Prüfassistent.
+Noch offen in Phase 1: lokale Historie, Prüfassistent.
 
 ## Entwickeln
 
@@ -31,7 +34,10 @@ npm run typecheck # TypeScript-Prüfung
 npm run report -- data/private/<Export>.csv 2026   # Auswertung einer echten Datei
 npm run report -- data/private/<Export>.csv 2026 --steuereinfach-seit JJJJ-MM-TT   # Konto mit KESt-Abzug durch Trade Republic
 npm run report -- data/private/<Export>.csv 2026 --ezb-kurse <eurofxref-hist.csv>   # Dividenden in Fremdwährung
+npm run report -- data/private/<Flex>.xml 2026 --ezb-kurse <eurofxref-hist.csv> [--ibkr-zinsen 861]   # IBKR
 ```
+
+IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.
 
 EZB-Kursdatei: [EZB, Euro foreign exchange reference rates](https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html) → `eurofxref-hist.zip`, entpackt. Die Web-App ruft die Kurse selbst über die [EZB-Datenschnittstelle](https://data.ecb.europa.eu/help/api/data) ab.
 
@@ -59,6 +65,11 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Fremdwährung, Grundlage:** EStR 2000 Rz 6201c (Fassung vom 21.04.2026, Findok): Einkünfte in Fremdwährung (zB Dividenden, Zinsen) werden mit dem EZB-Referenzkurs im Zuflusszeitpunkt bewertet, ebenso Kursgewinne ohne tatsächliche Umrechnung in Euro. Kommt es tatsächlich zu einer Konvertierung in Euro, zählt der dabei verwendete Kurs.
 - **Trades in Fremdwährung bei Trade Republic:** Trade Republic führt nur ein EUR-Konto und rechnet sofort um. Das gilt als tatsächliche Konvertierung: Es zählt der Euro-Betrag aus dem Export, kein EZB-Kurs (Entscheidung Joshua, 20.11.2026).
 - **Dividenden in Fremdwährung:** Bruttobetrag = Originalbetrag (`original_amount`) zum EZB-Referenzkurs am Zuflusstag (`date`). Trade Republic weist die einbehaltene Steuer nur in EUR aus; sie wird mit dem Kurs von Trade Republic (`fx_rate`) in die Originalwährung zurückgerechnet und dann zum EZB-Kurs umgerechnet. Annahme: Trade Republic rechnet Steuer und Bruttobetrag mit demselben Kurs um.
+- **IBKR, Trades in Fremdwährung:** IBKR hält Fremdwährung ohne Umtausch. Kurswert (`proceeds`, ohne Kommission) und Spesen werden deshalb zum EZB-Referenzkurs am Handelstag umgerechnet (EStR 2000 Rz 6201c, Kursgewinn ohne tatsächliche Umrechnung). Ein Konto mit automatischem Umtausch erkennt die App nicht. Ohne EZB-Kurs am Handelstag wird der Trade samt späteren Verkäufen der Position nicht berechnet. Transaktionssteuern (`taxes`) zählen wie Spesen und sind nicht abziehbar.
+- **IBKR, Dividenden und Quellensteuer:** Getrennte Buchungen werden je ISIN, Währung und Zahltag (`dateTime`) zusammengeführt. Korrekturen tragen dasselbe `dateTime` und ein späteres `reportDate`; sie zählen deshalb im Jahr der ursprünglichen Zahlung. Quellensteuer ohne Dividende am selben Zahltag wird gemeldet.
+- **IBKR, Zinsen auf dem Konto** („Broker Interest Received“): Einstellung KZ 863 (27,5 %, Standard, Entscheidung Joshua 20.11.2026) oder KZ 861 (25 %), offene Frage an den Steuerberater. Sollzinsen, Gebühren und Ein-/Auszahlungen sind ohne Bedeutung für die KESt.
+- **IBKR, nicht berechnet:** Optionen, Futures und CFDs (Phase 2), Devisentausch (Fremdwährungsgewinne laut EStR 2000 Rz 6201 f.), Optionsscheine und strukturierte Produkte (Anlageklassen WAR, IOPT; danach auch Verkäufe dieser Position), Ersatzzahlungen für Dividenden (Wertpapierleihe), Anleihezinsen und Stückzinsen.
+- **IBKR, Bestandsabgleich:** Weicht der Bestand laut Open Positions vom berechneten ab (z. B. Kauf vor dem Zeitraum der Flex Query), kommt ein Hinweis.
 - **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
 
 ## Daten

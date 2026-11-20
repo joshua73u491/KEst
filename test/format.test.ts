@@ -4,6 +4,8 @@ import { formatEur, formatReport } from "../src/format.js";
 import { RateTable } from "../src/fx.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
+import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
+import { ibCash, ibkrXml } from "./helpers/ibkrXml.js";
 import { dividend, interest, trCsv } from "./helpers/trCsv.js";
 
 describe("Ausgabe", () => {
@@ -35,6 +37,14 @@ describe("Ausgabe", () => {
     expect(text).toMatch(/Einbehalten von Trade Republic +1,10 €/);
     // Kennzahlen nur aus der Zeit vor der Umstellung
     expect(text).toMatch(/KZ 861 {2}Zinsen aus Geldeinlagen +0,00 €/);
+  });
+
+  test("Bericht nennt Broker-Zinsen und die gewählte Kennzahl", () => {
+    const xml = ibkrXml({ cash: [ibCash("Broker Interest Received", "20260905;202000", "10.00", { currency: "EUR" })] });
+    const text = formatReport(computeYear(parseIbkrFlexXml(xml), 2026));
+    expect(text).toMatch(/ {2}IBKR-Zinsen, Einstellung KZ 863 +10,00 €/);
+    const alt = formatReport(computeYear(parseIbkrFlexXml(xml), 2026, { brokerInterestKz: "861" }));
+    expect(alt).toMatch(/ {2}IBKR-Zinsen, Einstellung KZ 861 +10,00 €/);
   });
 
   test("Bericht nennt bei Dividenden in Fremdwährung Währung und EZB-Kurs", () => {

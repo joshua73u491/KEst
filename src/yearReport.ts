@@ -3,10 +3,13 @@ import { InsufficientPositionError, Positions, type Position, type Trade } from 
 import { dec, D, ZERO, type Dec } from "./decimal.js";
 import { formatEur } from "./format.js";
 import type { RateSource } from "./fx.js";
-import type { AssetKind, ImportResult, Unsupported } from "./import/tradeRepublic.js";
+import type { AssetKind, ImportedTrade, ImportResult, Unsupported } from "./import/model.js";
 import { countryOfIsin, dividendTreatyRate } from "./treaty.js";
 
 export const BANK_INTEREST_RATE = dec("0.25");
+
+/** Depot von Trade Republic; nur dort gilt „steuereinfach seit“. */
+const TR_DEPOT = "TR";
 
 export interface YearOptions {
   /**
@@ -14,8 +17,13 @@ export interface YearOptions {
    * Erträge ab diesem Tag gelten als endbesteuert: Sie zählen nicht für die E1kv und nicht für die Rücklage.
    */
   taxSimpleSince?: string;
-  /** EZB-Referenzkurse für Dividenden in Fremdwährung; ohne Kursquelle werden sie als „nicht berechnet“ gemeldet */
+  /** EZB-Referenzkurse für Beträge in Fremdwährung; ohne Kursquelle werden sie als „nicht berechnet“ gemeldet */
   rates?: RateSource;
+  /**
+   * Kennzahl für Zinsen auf dem Konto eines Brokers (IBKR): KZ 863 (27,5 %, Verlustausgleich möglich, Standard)
+   * oder KZ 861 (25 %). Offene Frage an den Steuerberater, siehe docs/HANDOFF.md.
+   */
+  brokerInterestKz?: "861" | "863";
 }
 
 export interface RealizedLine {
@@ -77,6 +85,9 @@ export interface YearReport {
   kz998: Dec;
   /** Zinsen aus Geldeinlagen bei Kreditinstituten (25 %) */
   kz861: Dec;
+  /** Zinsen auf dem Konto eines Brokers (IBKR) im Jahr, enthalten in KZ 863 oder KZ 861 laut Einstellung */
+  brokerInterestEur: Dec;
+  brokerInterestKz: "861" | "863";
   taxableBaseEur: Dec;
   unusedLossEur: Dec;
   tax275Eur: Dec;
@@ -104,9 +115,35 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   if (since !== null && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
     throw new Error(`Das Datum für „steuereinfach seit“ ist ungültig: „${since}“. Erwartet wird JJJJ-MM-TT.`);
   }
-  /** Ab der Umstellung zieht Trade Republic die KESt selbst ab: Erträge sind endbesteuert. */
-  const taxedByTr = (date: string) => since !== null && date >= since;
+  /** Ab der Umstellung zieht Trade Republic die KESt selbst ab: Erträge in diesem Depot sind endbesteuert. */
+  const taxedByTr = (depot: string, date: string) => depot === TR_DEPOT && since !== null && date >= since;
   const inYear = (date: string) => date.startsWith(`${year}-`);
+  const brokerInterestKz = options.brokerInterestKz ?? "863";
+
+  /**
+   * Betrag in Fremdwährung zum EZB-Referenzkurs am Tag (EStR 2000 Rz 6201c). Ohne Kurs an diesem Tag wird nicht
+   * geschätzt; der Grund kommt als Text zurück.
+   */
+  const ecbToEur = (amount: string, currency: string, date: string, what: string): Dec | string => {
+    if (currency === "EUR") return dec(amount);
+    if (!options.rates) return `${what} in ${currency}: Die EZB-Referenzkurse sind nicht geladen. Nicht berechnet.`;
+    const rate = options.rates.rate(currency, date);
+    if (!rate) return `${what} in ${currency}: Für ${currency} gibt es am ${date} keinen EZB-Referenzkurs. Nicht berechnet.`;
+    return dec(amount).div(rate);
+  };
+
+  /** Kurswert und Spesen eines Trades in EUR; bei IBKR-Trades in Fremdwährung zum EZB-Kurs am Handelstag. */
+  const tradeInEur = (t: ImportedTrade): ImportedTrade | string => {
+    if (!t.convert) return t;
+    const amount = ecbToEur(t.convert.amount, t.convert.currency, t.date, `Trade von ${t.isin}`);
+    if (typeof amount === "string") return amount;
+    // Spesen dienen nur der Information (im 27,5 %-Topf nicht abziehbar); ohne Kurs werden sie nicht mitgezählt.
+    const fee = t.convert.fees.reduce((sum, f) => {
+      const eur = ecbToEur(f.amount, f.currency, t.date, "Spesen");
+      return typeof eur === "string" ? sum : sum.plus(eur);
+    }, ZERO);
+    return { ...t, amountEur: amount.toString(), feeEur: fee.toString() };
+  };
   const positions = new Positions();
   const realized: RealizedLine[] = [];
   const taxedByBroker: BrokerTaxedLine[] = [];
@@ -115,6 +152,10 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   const notComputed: Unsupported[] = [...data.unsupported];
   /** Positionen (Depot|ISIN), deren Bestand seit einer Zeile nicht mehr vollständig bekannt ist */
   const broken = new Map<string, number>();
+  const markBroken = (depot: string, isin: string, line: number) => {
+    const key = `${depot}|${isin}`;
+    if (!broken.has(key)) broken.set(key, line);
+  };
 
   /**
    * Verkauf oder Übertrag mit fehlendem Bestand: nie schätzen. Die Buchung und alle späteren Abgänge
@@ -154,16 +195,24 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   // Bei identischem Zeitstempel zuerst Käufe, dann Verkäufe und Überträge (Annahme, siehe README).
   const rank = (side: "buy" | "sell" | "transfer_out") => (side === "buy" ? 0 : 1);
   const events: Array<{ at: string; rank: number; apply: () => void }> = [
-    ...data.trades.map((t) => ({
-      at: t.datetime || t.date,
-      rank: rank(t.side),
+    ...data.trades.map((original) => ({
+      at: original.datetime || original.date,
+      rank: rank(original.side),
       apply: () => {
-        const type = `TRADING/${t.side === "buy" ? "BUY" : "SELL"}`;
+        const side = original.side === "buy" ? "BUY" : "SELL";
+        const type = original.depot === TR_DEPOT ? `TRADING/${side}` : `Trade/${side}`;
+        const t = tradeInEur(original);
+        if (typeof t === "string") {
+          // Ohne Kurs kein Trade: der Bestand dieser Position ist ab hier unsicher.
+          notComputed.push({ line: original.line, type, reason: t });
+          markBroken(original.depot, original.isin, original.line);
+          return;
+        }
         const r = applyChecked(t, t.line, type);
         if (!inYear(t.date)) return;
         feesEur = feesEur.plus(t.feeEur);
         const withheld = dec(t.withheldEur);
-        if (taxedByTr(t.date)) {
+        if (taxedByTr(t.depot, t.date)) {
           if (r) {
             taxedByBroker.push({ line: t.line, date: t.date, kind: "sale", isin: t.isin, name: t.name, amountEur: r.gainEur, withheldEur: withheld });
           }
@@ -180,10 +229,6 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     })),
   ];
   // Übersprungene Bestandsbuchungen: ab diesem Zeitpunkt ist der Bestand der Position unsicher.
-  const markBroken = (depot: string, isin: string, line: number) => {
-    const key = `${depot}|${isin}`;
-    if (!broken.has(key)) broken.set(key, line);
-  };
   for (const u of data.unsupported) {
     const a = u.affects;
     if (!a) continue;
@@ -191,7 +236,7 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   }
   // Kapitalausschüttung vor der Umstellung: kann eine Einlagenrückzahlung sein, die die Anschaffungskosten mindert.
   for (const d of data.dividends) {
-    if (d.kind !== "capitalDistribution" || taxedByTr(d.date)) continue;
+    if (d.kind !== "capitalDistribution" || taxedByTr(d.depot, d.date)) continue;
     events.push({
       at: d.datetime || d.date,
       rank: 0,
@@ -209,14 +254,29 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   }
   events.sort((a, b) => a.at.localeCompare(b.at) || a.rank - b.rank).forEach((e) => e.apply());
 
+  // Abgleich mit dem Bestand laut Broker (IBKR OpenPositions): Abweichungen nie still übergehen.
+  for (const p of data.reportedPositions) {
+    if (broken.has(`${p.depot}|${p.isin}`)) continue; // bereits als unvollständig gemeldet
+    const app = positions.get(p.isin, p.depot).quantity;
+    if (app.eq(p.quantity)) continue;
+    notComputed.push({
+      line: p.line,
+      type: "OpenPosition",
+      reason:
+        `Bestand von ${p.isin} laut ${p.depot.split(" ")[0]} am ${p.date}: ${dec(p.quantity).toString()} Stück, laut App: ${app.toString()} Stück. ` +
+        `Vermutlich fehlen Käufe vor dem Exportzeitraum; Verkäufe dieser Position können falsch berechnet sein. ` +
+        `Bitte den Export mit Zeitraum seit Kontoeröffnung verwenden.`,
+    });
+  }
+
   // Ausschüttungen im Jahr
   const dividends: DividendLine[] = [];
   const basketDividends: Dividend[] = [];
   for (const d of data.dividends.filter((x) => inYear(x.date))) {
     const type = d.kind === "fund" ? "CASH/DISTRIBUTION" : d.kind === "capitalDistribution" ? "CASH/DIVIDEND_EQUIVALENT_PAYMENT" : "CASH/DIVIDEND";
-    let gross = dec(d.grossEur);
-    let withheld = dec(d.withheldEur);
-    if (taxedByTr(d.date)) {
+    let gross = d.grossEur === "" ? ZERO : dec(d.grossEur);
+    let withheld = d.withheldEur === "" ? ZERO : dec(d.withheldEur);
+    if (taxedByTr(d.depot, d.date)) {
       taxedByBroker.push({ line: d.line, date: d.date, kind: "dividend", isin: d.isin, name: d.name, amountEur: gross, withheldEur: withheld });
       continue;
     }
@@ -251,7 +311,10 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
         );
         continue;
       }
-      if (!withheld.isZero()) {
+      if (d.withheldOriginal !== "") {
+        // IBKR weist die Quellensteuer in der Originalwährung aus.
+        withheld = dec(d.withheldOriginal).div(rate);
+      } else if (!withheld.isZero()) {
         // Trade Republic weist die Steuer nur in EUR aus. Zurück in die Originalwährung mit dem Kurs von Trade Republic
         // (Annahme im README: dieselbe Umrechnung wie beim Bruttobetrag), dann zum EZB-Kurs in EUR.
         if (d.brokerFxRate === "" || dec(d.brokerFxRate).lte(0)) {
@@ -305,18 +368,33 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
 
   // Zinsen im Jahr
   let kz861 = ZERO;
+  let brokerInterestEur = ZERO;
   for (const i of data.interest.filter((x) => inYear(x.date))) {
+    const type = i.depot === TR_DEPOT ? "CASH/INTEREST_PAYMENT" : "CashTransaction/Broker Interest Received";
     const withheld = dec(i.withheldEur);
-    if (taxedByTr(i.date)) {
+    if (taxedByTr(i.depot, i.date)) {
       taxedByBroker.push({ line: i.line, date: i.date, kind: "interest", isin: i.isin, name: "", amountEur: dec(i.amountEur), withheldEur: withheld });
       continue;
     }
     if (i.isin !== "") {
-      notComputed.push({ line: i.line, type: "CASH/INTEREST_PAYMENT", reason: `Zinsen aus dem Wertpapier ${i.isin} (KZ 863) werden noch nicht berechnet.` });
+      notComputed.push({ line: i.line, type, reason: `Zinsen aus dem Wertpapier ${i.isin} (KZ 863) werden noch nicht berechnet.` });
       continue;
     }
-    if (!withheld.isZero()) notComputed.push({ line: i.line, type: "CASH/INTEREST_PAYMENT", reason: withheldNote(withheld) });
-    kz861 = kz861.plus(i.amountEur);
+    // Zinsen in Fremdwährung: EZB-Referenzkurs im Zuflusszeitpunkt (EStR 2000 Rz 6201c)
+    const amount = i.convert ? ecbToEur(i.convert.amount, i.convert.currency, i.date, "Zinsen") : dec(i.amountEur);
+    if (typeof amount === "string") {
+      notComputed.push({ line: i.line, type, reason: amount });
+      continue;
+    }
+    if (!withheld.isZero()) notComputed.push({ line: i.line, type, reason: withheldNote(withheld) });
+    if (i.source === "broker") {
+      brokerInterestEur = brokerInterestEur.plus(amount);
+      // KZ 863: im 27,5 %-Topf mit Verlustausgleich; ohne Quellensteuer
+      if (brokerInterestKz === "863") basketDividends.push({ grossEur: amount, withholdingEur: ZERO, treatyRate: ZERO });
+      else kz861 = kz861.plus(amount);
+      continue;
+    }
+    kz861 = kz861.plus(amount);
   }
 
   const gainsOf = (kind: AssetKind) => realized.filter((r) => r.kind === kind).map((r) => r.gainEur);
@@ -341,6 +419,8 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     kz863: basket.kz863,
     kz998: basket.kz998,
     kz861,
+    brokerInterestEur,
+    brokerInterestKz,
     taxableBaseEur: basket.taxableBaseEur,
     unusedLossEur: basket.unusedLossEur,
     tax275Eur: basket.taxEur,

@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { fetchEcbRates, ratesNeeded } from "../src/web/loadRates.js";
+import { parseIbkrFlexXml } from "../src/import/ibkrFlex.js";
+import { ibCash, ibkrXml, ibTrade } from "./helpers/ibkrXml.js";
 import { dividend, trade, trCsv } from "./helpers/trCsv.js";
 
 const usd = (at: string) =>
@@ -17,6 +19,19 @@ describe("Web-App: welche EZB-Kurse gebraucht werden", () => {
       ),
     );
     expect(ratesNeeded(data)).toEqual({ currencies: ["USD"], start: "2026-03-02", end: "2026-09-01" });
+  });
+
+  test("IBKR: auch Trades, Kommissionen und Zinsen in Fremdwährung brauchen EZB-Kurse", () => {
+    const data = parseIbkrFlexXml(
+      ibkrXml({
+        trades: [
+          ibTrade("BUY", "20260302", "US0000000101", "10", "1000"),
+          ibTrade("BUY", "20260303", "DE0000000201", "1", "50", { currency: "EUR", ibCommissionCurrency: "CHF" }),
+        ],
+        cash: [ibCash("Broker Interest Received", "20261105;202000", "4.00", { currency: "JPY" })],
+      }),
+    );
+    expect(ratesNeeded(data)).toEqual({ currencies: ["CHF", "JPY", "USD"], start: "2026-03-02", end: "2026-11-05" });
   });
 
   test("ohne Fremdwährungs-Dividenden wird nichts abgerufen", () => {

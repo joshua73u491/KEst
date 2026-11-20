@@ -94,11 +94,11 @@ code{font-size:13px;overflow-wrap:anywhere}
   <div class="wrap">
     <div class="brand">KESt-Rücklage</div>
     <h1>Wie viel du für die Steuer zurücklegen musst</h1>
-    <p class="lead">Für Österreich und Broker ohne automatischen KESt-Abzug. Zieh deinen Trade-Republic-Transaktionsexport hinein (App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung). Zieht Trade Republic bei dir die KESt schon ab (steuereinfach), gib unten an, seit wann.</p>
+    <p class="lead">Für Österreich und Broker ohne automatischen KESt-Abzug. Zieh deinen Trade-Republic-Transaktionsexport hinein (App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung) oder eine IBKR Activity Flex Query als XML (Abschnitte Trades, Cash Transactions, Open Positions). Zieht Trade Republic bei dir die KESt schon ab (steuereinfach), gib unten an, seit wann.</p>
     <div class="import">
       <div id="drop">
-        <label class="btn" for="file">CSV-Datei wählen</label>
-        <input id="file" type="file" accept=".csv,text/csv">
+        <label class="btn" for="file">Datei wählen</label>
+        <input id="file" type="file" accept=".csv,.xml,text/csv,text/xml,application/xml">
         <span id="source"></span>
       </div>
       <button class="btn ghost" id="sample" type="button">Beispieldaten zeigen</button>
@@ -123,6 +123,7 @@ code{font-size:13px;overflow-wrap:anywhere}
         <label>Jahr <select id="year"></select></label>
         <label>Sicherheitspuffer <input id="buffer" type="range" min="0" max="30" step="5" value="10"> <b id="bufferOut">10 %</b></label>
         <label title="Leer lassen, wenn Trade Republic bei dir keine KESt abzieht">Steuereinfach seit <input id="since" type="date"></label>
+        <label id="kzSetting" hidden title="Offene Frage an den Steuerberater: KZ 863 (27,5 %) oder KZ 861 (25 %)">IBKR-Zinsen <select id="ibkrKz"><option value="863">KZ 863 · 27,5 %</option><option value="861">KZ 861 · 25 %</option></select></label>
       </div>
     </div>
     <dl id="figs"></dl>
@@ -168,6 +169,7 @@ code{font-size:13px;overflow-wrap:anywhere}
       <li>Krypto, die du in ein eigenes Wallet überträgst, wird als Übertrag ohne Gewinn behandelt. Spätere Verkäufe außerhalb von Trade Republic sind hier nicht enthalten.</li>
       <li>Dividenden in Fremdwährung rechnet die App mit dem EZB-Referenzkurs am Zuflusstag um. Gibt es an diesem Tag keinen Kurs, wird nicht geschätzt. Bei Käufen und Verkäufen in Fremdwährung zählt der Euro-Betrag, den Trade Republic tatsächlich umgerechnet hat.</li>
       <li>Ausschüttungen von Fonds und ETFs und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
+      <li>IBKR: Käufe und Verkäufe in Fremdwährung werden zum EZB-Referenzkurs am Handelstag umgerechnet. Optionen und Futures rechnet die App noch nicht. Ob Zinsen auf dem IBKR-Konto in KZ 863 oder KZ 861 gehören, ist offen; die App rechnet standardmäßig mit KZ 863 und du kannst umstellen.</li>
       <li>Steuereinfach heißt: Trade Republic zieht die KESt selbst ab und führt sie ans Finanzamt ab. Erträge ab dem angegebenen Tag zählen hier deshalb weder für die E1kv noch für die Rücklage.</li>
     </ul>
   </div>

@@ -38,7 +38,9 @@ describe("Trade-Republic-Transaktionsexport (CSV seit April 2026)", () => {
   });
 
   test("Zinsen auf dem Verrechnungskonto werden erfasst", () => {
-    expect(result.interest).toEqual([{ line: 15, date: "2026-08-01", amountEur: "2", withheldEur: "0", isin: "" }]);
+    expect(result.interest).toEqual([
+      { line: 15, date: "2026-08-01", depot: "TR", source: "bank", amountEur: "2", withheldEur: "0", isin: "" },
+    ]);
   });
 
   test("Kartenzahlungen und Einzahlungen werden ignoriert, Unbekanntes wird gemeldet", () => {
@@ -190,6 +192,7 @@ describe("Trade-Republic-Import: Ausschüttungen", () => {
         withheldEur: "26.38",
         originalCurrency: "",
         originalAmount: "",
+        withheldOriginal: "",
         brokerFxRate: "",
       },
     ]);
@@ -309,8 +312,9 @@ describe("Trade-Republic-Import: Ausschüttungen", () => {
       ),
     );
     expect(r.interest).toEqual([
-      { line: 2, date: "2026-04-15", amountEur: "2", withheldEur: "0.5", isin: "" },
-      { line: 3, date: "2026-04-16", amountEur: "3", withheldEur: "0", isin: "XS0000000001" },
+      { line: 2, date: "2026-04-15", depot: "TR", source: "bank", amountEur: "2", withheldEur: "0.5", isin: "" },
+      { line: 3, date: "2026-04-16", depot: "TR", source: "bank", amountEur: "3", withheldEur: "0", isin: "XS0000000001" },
     ]);
+    expect(r.reportedPositions).toEqual([]);
   });
 });
