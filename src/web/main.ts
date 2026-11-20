@@ -25,6 +25,7 @@ import { reserveTarget } from "../reserve.js";
 import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
+import { initSetupWizard } from "./setupWizard.js";
 import { clearHistory, loadHistory, saveHistory } from "./storage.js";
 
 interface State {
@@ -264,6 +265,9 @@ function applySettingsToControls() {
   $<HTMLSelectElement>("derivTreatment").value = s.derivativesTreatment;
   $<HTMLInputElement>("otherIncome").value = s.otherIncomeEur;
   $<HTMLInputElement>("buffer").value = String(s.bufferPct);
+  // Ort der Rücklage aus der Einrichtung als Vorschlag, eine eigene Eingabe bleibt stehen
+  const place = $<HTMLInputElement>("entryPlace");
+  if (!place.value) place.value = s.reservePlace;
 }
 
 function updateSettings(change: Partial<History["settings"]>) {
@@ -845,18 +849,45 @@ function render() {
     refresh();
   });
 
+  // Einrichtungsassistent (Schritt 3.1): beim ersten Besuch automatisch, sonst über den Knopf „Einrichtung“
+  const wizard = initSetupWizard({
+    history: () => state.history,
+    storeFile: (name, text) => {
+      const r = addFile(state.history, name, text, new Date().toISOString(), newId());
+      state.history = r.history;
+      state.mode = "history";
+      state.error = "";
+      if (r.added) persist();
+      refresh();
+      return r.added ? "Gespeichert." : "War schon gespeichert.";
+    },
+    finish: (history) => {
+      state.history = history;
+      state.mode = "history";
+      state.notice = "Einrichtung abgeschlossen. Unten siehst du die Steuer seit Jahresbeginn, die Soll-Rücklage und offene Klärungsfälle.";
+      applySettingsToControls();
+      persist();
+      refresh();
+      document.querySelector(".hero")?.scrollIntoView({ behavior: "smooth" });
+    },
+    today,
+  });
+  $("setupOpen").addEventListener("click", () => wizard.open());
+
   loadHistory().then(
     (history) => {
       state.history = history;
       state.mode = history.files.length > 0 ? "history" : "sample";
       applySettingsToControls();
       refresh();
+      if (history.files.length === 0 && !history.settings.setupDoneAt) wizard.open();
     },
     (e: unknown) => {
       state.storageOk = false;
       state.storageError = e instanceof Error ? e.message : String(e);
       state.mode = "sample";
       refresh();
+      wizard.open();
     },
   );
 }

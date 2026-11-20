@@ -135,6 +135,45 @@ code{font-size:13px;overflow-wrap:anywhere}
 .invForm{display:flex;flex-wrap:wrap;gap:10px 16px}
 .invForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
 .link.ok{color:var(--green)}
+#setup{width:min(720px,calc(100vw - 32px));max-height:calc(100dvh - 32px);border:0;border-radius:16px;padding:0;background:var(--bg);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#setup::backdrop{background:rgba(7,19,13,.55)}
+#setupBody{padding:clamp(18px,3vw,32px)}
+#setup h2{font-size:24px;margin:14px 0 6px}
+#setup h3{font:600 15px/1.3 Inter,sans-serif;margin:18px 0 6px}
+.steps{display:flex;flex-wrap:wrap;gap:6px 14px;list-style:none;margin:0;padding:0;font-size:13px;color:var(--soft)}
+.steps .now{color:var(--green);font-weight:600}
+.steps .done{color:var(--ink)}
+.brokers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:14px}
+.brokerBtn{display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left;padding:16px;border-radius:12px;border:1.5px solid var(--line);background:var(--mist);color:var(--ink);font:16px Inter,sans-serif;cursor:pointer;min-height:88px}
+.brokerBtn:hover,.brokerBtn:focus-visible{border-color:var(--green);outline:none}
+.brokerBtn b{font-family:"Space Grotesk",Inter,sans-serif;font-size:20px;font-weight:500}
+.brokerBtn small{color:var(--soft);font-size:13px}
+.guide{margin:8px 0 0;padding-left:20px}
+.guide li{margin:0 0 12px}
+.guide p{margin:0 0 6px}
+.shot{border:1.5px dashed var(--line);border-radius:10px;padding:14px;color:var(--soft);font-size:13px;background:var(--mist)}
+ul.check{margin:0;padding-left:20px}
+.src{font-size:13px;color:var(--soft)}
+.src a{color:inherit}
+.dropzone{display:flex;flex-wrap:wrap;gap:12px;align-items:center;border:1.5px dashed var(--line);border-radius:12px;padding:14px 16px;background:var(--mist)}
+.dropzone.over{border-color:var(--green)}
+#setupFile{position:absolute;width:1px;height:1px;opacity:0}
+.loaded{list-style:none;margin:12px 0 0;padding:0}
+.loaded li{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border-radius:10px;margin-bottom:8px;font-size:14px}
+.loaded li.ok{background:color-mix(in srgb,var(--green) 12%,transparent)}
+.loaded li.bad{background:color-mix(in srgb,var(--loss) 14%,transparent)}
+.loaded .note{color:var(--soft)}
+.qs fieldset{border:0;border-top:1px solid var(--line);margin:0;padding:12px 0;display:flex;flex-direction:column;gap:8px}
+.qs legend{font-weight:600;padding:0}
+.qs label{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:15px}
+.qs label.income{flex-direction:column;align-items:flex-start}
+.qs small{color:var(--soft);font-size:13px}
+.qs input[type=text],.qs input[type=number],.qs input[type=date]{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:1.5px solid var(--line);padding:0 12px;background:var(--panel);color:var(--ink);color-scheme:inherit;max-width:100%}
+.qs input[type=text]{width:min(420px,100%)}
+.qs input[type=range]{accent-color:var(--green)}
+.qs input[type=radio]{width:20px;height:20px;accent-color:var(--green)}
+.setupError{color:var(--loss)}
+.setupNav{display:flex;justify-content:space-between;gap:10px;margin-top:18px;flex-wrap:wrap}
 @media(max-width:900px){.hero .wrap,.grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){#bars li{grid-template-columns:minmax(0,1fr) auto}.track{grid-column:1/-1;grid-row:2}dl{grid-template-columns:minmax(0,1fr)}table{font-size:13px}th,td{padding:6px 4px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -153,6 +192,7 @@ code{font-size:13px;overflow-wrap:anywhere}
         <span id="source"></span>
       </div>
       <button class="btn ghost" id="sample" type="button">Beispieldaten zeigen</button>
+      <button class="btn ghost" id="setupOpen" type="button">Einrichtung</button>
     </div>
     <p class="priv">Deine Dateien verlassen deinen Browser nicht: Sie werden nur hier auf diesem Gerät gespeichert, nicht auf einem Server. Für Beträge in Fremdwährung ruft die App die öffentlichen EZB-Referenzkurse ab; dabei werden nur Währung und Zeitraum übermittelt.</p>
     <div id="notice" hidden></div>
@@ -313,6 +353,9 @@ code{font-size:13px;overflow-wrap:anywhere}
     </ul>
   </div>
 </section>
+<dialog id="setup" aria-labelledby="setupTitle">
+  <div id="setupBody"></div>
+</dialog>
 <script>
 <!--APP_SCRIPT-->
 </script>
