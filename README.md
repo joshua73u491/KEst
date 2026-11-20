@@ -30,7 +30,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt; als Nächstes Gate 2.
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`.
 
 **Erinnerungen** (`reminders`, nur für die eigenen gespeicherten Daten): Warnung bei Fehlbetrag in der Rücklage oder fehlendem Stand, Warnung, wenn der letzte Import mehr als 30 Tage zurückliegt, Frist der Steuererklärung für das Vorjahr ab 1. Jänner (in den letzten 30 Tagen als Warnung, mit Link zur [BMF-Quelle](https://www.bmf.gv.at/themen/steuern/fuer-unternehmen/einkommensteuer/einkommensteuererklaerungspflicht.html)) und im November und Dezember der Hinweis, dass Verluste nur im selben Kalenderjahr ausgleichen, mit dem Stand des Jahres. Push-Nachrichten kommen erst in Phase 4.
 
