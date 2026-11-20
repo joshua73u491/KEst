@@ -21,6 +21,7 @@ import {
   type YearSoll,
 } from "../ledger.js";
 import { reminders, yearFigures, type YearFigures } from "../reminders.js";
+import { checkOrder, simulateSale } from "../simulator.js";
 import { reserveTarget } from "../reserve.js";
 import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
@@ -538,6 +539,111 @@ function renderLedger(data: ImportResult | null, ls: LedgerState, now: string) {
     : `<li class="empty">Wähle die Anlageart, dann prüft die App die Kriterien.</li>`;
 }
 
+/** zuletzt berechneter Stand der Rücklage, für den Kauf-Check */
+let lastLedger: LedgerState | null = null;
+let simPositionsKey = "";
+
+/** Verkaufs-Simulator (Schritt 3.3): Auswahl der offenen Positionen zum heutigen Tag. */
+function renderSimulator(data: ImportResult | null, now: string) {
+  const select = $<HTMLSelectElement>("simPos");
+  let positions: Array<{ key: string; label: string; quantity: string }> = [];
+  if (data) {
+    try {
+      const report = cached(data, "today", now, () => computeYear(data, Number(now.slice(0, 4)), { ...yearOptions(), asOf: now }));
+      const names = new Map(data.trades.map((t) => [`${t.depot}|${t.isin}`, t.name]));
+      positions = report.openPositions.map((p) => {
+        const key = `${p.depot}|${p.isin}`;
+        return {
+          key,
+          quantity: p.quantity.toString(),
+          label: `${names.get(key) || p.isin} · ${p.depot} · ${p.quantity.toString()} Stück · Ø ${formatEur(p.avgPriceEur)}`,
+        };
+      });
+    } catch {
+      positions = [];
+    }
+  }
+  const key = positions.map((p) => p.key + p.quantity).join(";");
+  if (key === simPositionsKey) return;
+  simPositionsKey = key;
+  const selected = select.value;
+  select.innerHTML = positions.length
+    ? positions.map((p) => `<option value="${esc(p.key)}" data-qty="${esc(p.quantity)}">${esc(p.label)}</option>`).join("")
+    : `<option value="">Keine offene Position</option>`;
+  if (positions.some((p) => p.key === selected)) select.value = selected;
+  $<HTMLInputElement>("simQty").value = select.selectedOptions[0]?.dataset.qty ?? "";
+  $("simResult").hidden = true;
+  $("simNote").textContent = "";
+  $<HTMLFormElement>("simForm").querySelector("button")?.toggleAttribute("disabled", positions.length === 0);
+}
+
+function runSimulation() {
+  const [depot = "", isin = ""] = $<HTMLSelectElement>("simPos").value.split("|");
+  const error = $("simError");
+  if (!state.data || !isin) return;
+  try {
+    const s = simulateSale({
+      data: state.data,
+      options: yearOptions(),
+      bufferPct: state.history.settings.bufferPct,
+      today: today(),
+      isin,
+      depot,
+      quantity: $<HTMLInputElement>("simQty").value,
+      priceEur: $<HTMLInputElement>("simPrice").value,
+      feeEur: $<HTMLInputElement>("simFee").value,
+    });
+    error.hidden = true;
+    const loss = s.gainEur.lt(0);
+    const change = s.taxChangeEur;
+    $("simResult").hidden = false;
+    $("simResult").innerHTML = [
+      statusCell("Erlös", formatEur(s.proceedsEur), `${$<HTMLInputElement>("simQty").value} Stück`),
+      statusCell("Anschaffungskosten", formatEur(s.costEur), `Ø ${formatEur(s.avgPriceEur)} je Stück`),
+      statusCell(loss ? "Verlust" : "Gewinn", formatEur(s.gainEur.abs()), "", loss ? "short" : ""),
+      statusCell(
+        `Steuer ${s.year} bis heute`,
+        `${change.gte(0) ? "+" : "−"} ${formatEur(change.abs())}`,
+        `${formatEur(s.taxBeforeEur)} ohne, ${formatEur(s.taxAfterEur)} mit diesem Verkauf; Soll ${formatEur(s.sollBeforeEur)} → ${formatEur(s.sollAfterEur)}`,
+      ),
+    ].join("");
+    $("simNote").textContent =
+      (s.taxedByBroker
+        ? "Dieser Verkauf wäre bei Trade Republic endbesteuert: Trade Republic zieht die KESt selbst ab, deine E1kv und die Rücklage ändern sich dadurch nicht. "
+        : "") +
+      (s.complete ? "" : "Achtung: Im Jahr ist etwas „nicht berechnet“, die Zahlen können unvollständig sein. ") +
+      "Spesen mindern den Gewinn im 27,5 %-Topf nicht.";
+  } catch (e) {
+    error.hidden = false;
+    error.textContent = e instanceof Error ? e.message : String(e);
+    $("simResult").hidden = true;
+  }
+}
+
+function runOrderCheck() {
+  const error = $("ocError");
+  const out = $("ocResult");
+  if (!lastLedger) return;
+  try {
+    const order = $<HTMLInputElement>("ocOrder").value;
+    // Zahlenfelder liefern bei leerer oder ungültiger Eingabe einen leeren Wert
+    if ($<HTMLInputElement>("ocCash").value === "") throw new Error("Bitte trag dein Guthaben in Euro ein.");
+    if (order === "") throw new Error("Bitte trag den Betrag der Order in Euro ein.");
+    const c = checkOrder({ cashEur: $<HTMLInputElement>("ocCash").value, orderEur: order, reserveInAccount: $<HTMLInputElement>("ocInAccount").checked }, lastLedger.status);
+    error.hidden = true;
+    out.hidden = false;
+    out.classList.toggle("short", !c.enough);
+    const keep = `Für die Rücklage müssen ${formatEur(c.mustKeepEur)} im Guthaben bleiben, frei sind ${formatEur(c.freeEur)}.`;
+    out.textContent = c.enough
+      ? `${keep} Die Order über ${formatEur(dec(order))} ist gedeckt.`
+      : `${keep} Für die Order über ${formatEur(dec(order))} fehlen ${formatEur(c.missingEur)}, wenn die Rücklage gedeckt bleiben soll.`;
+  } catch (e) {
+    error.hidden = false;
+    error.textContent = e instanceof Error ? e.message : String(e);
+    out.hidden = true;
+  }
+}
+
 function readInvestment(): ReserveInvestment | null {
   const kind = $<HTMLSelectElement>("invKind").value as InvestmentKind | "";
   if (!kind) return null;
@@ -579,9 +685,11 @@ function render() {
   const data = state.data;
   const now = today();
   const ls = ledgerState(data, now);
+  lastLedger = ls;
   renderReminders(data, ls, now);
   renderCheck(data);
   renderLedger(data, ls, now);
+  renderSimulator(data, now);
   if (!data) {
     renderEmpty();
     return;
@@ -847,6 +955,20 @@ function render() {
     state.mode = "history";
     state.notice = "";
     refresh();
+  });
+
+  // Verkaufs-Simulator und Kauf-Check (Schritt 3.3)
+  $("simPos").addEventListener("change", () => {
+    $<HTMLInputElement>("simQty").value = $<HTMLSelectElement>("simPos").selectedOptions[0]?.dataset.qty ?? "";
+    $("simResult").hidden = true;
+  });
+  $<HTMLFormElement>("simForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    runSimulation();
+  });
+  $<HTMLFormElement>("ocForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    runOrderCheck();
   });
 
   // Einrichtungsassistent (Schritt 3.1): beim ersten Besuch automatisch, sonst über den Knopf „Einrichtung“

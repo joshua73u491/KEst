@@ -88,6 +88,8 @@ export interface ReserveStatus {
   releasableEur: Dec;
   /** Überschuss, der erst nach dem 31.12. frei wird */
   lockedEur: Dec;
+  /** Betrag, der bis zur Freigabe in der Rücklage bleiben muss (laufendes Jahr: Höchststand des Solls) */
+  requiredEur: Dec;
   lockedUntil: string | null;
   complete: boolean;
 }
@@ -126,6 +128,7 @@ export function reserveStatus(yearSolls: YearSoll[], ledger: Ledger, today: stri
     surplusEur: surplus,
     releasableEur: releasable,
     lockedEur: locked,
+    requiredEur: lockBase,
     lockedUntil: locked.gt(0) ? `${todayYear + 1}-01-01` : null,
     complete: years.every((y) => y.complete),
   };

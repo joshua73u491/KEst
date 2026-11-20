@@ -135,6 +135,12 @@ code{font-size:13px;overflow-wrap:anywhere}
 .invForm{display:flex;flex-wrap:wrap;gap:10px 16px}
 .invForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
 .link.ok{color:var(--green)}
+.formError{color:var(--loss);font-size:14px;margin:8px 0 0}
+.entryForm label.check{flex-direction:row;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
+.entryForm label.check input{min-height:auto;width:20px;height:20px;accent-color:var(--green)}
+.ocResult{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--mist)}
+.ocResult.short{background:color-mix(in srgb,var(--loss) 14%,transparent)}
+#simResult{margin-top:12px}
 #setup{width:min(720px,calc(100vw - 32px));max-height:calc(100dvh - 32px);border:0;border-radius:16px;padding:0;background:var(--bg);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.35)}
 #setup::backdrop{background:rgba(7,19,13,.55)}
 #setupBody{padding:clamp(18px,3vw,32px)}
@@ -303,6 +309,37 @@ ul.check{margin:0;padding-left:20px}
         </select></label>
       </div>
       <ul id="invFindings"></ul>
+    </div>
+  </div>
+</section>
+
+<section class="band ledger" id="simBand">
+  <div class="wrap grid">
+    <div>
+      <h2>Verkaufs-Simulator</h2>
+      <p class="sub">Was kostet dieser Verkauf steuerlich? Die App rechnet mit dem gleitenden Durchschnittspreis und dem Preis, den du eingibst. Ob du verkaufst, entscheidest du.</p>
+      <form id="simForm" class="entryForm" novalidate>
+        <label class="wide">Position <select id="simPos"></select></label>
+        <label>Stück <input id="simQty" type="number" min="0" step="any" inputmode="decimal"></label>
+        <label>Preis je Stück in € <input id="simPrice" type="number" min="0" step="any" inputmode="decimal" placeholder="z. B. 95,40"></label>
+        <label>Spesen in € (optional) <input id="simFee" type="number" min="0" step="0.01" inputmode="decimal"></label>
+        <button class="btn" type="submit">Durchrechnen</button>
+      </form>
+      <p id="simError" class="formError" hidden></p>
+      <dl class="status" id="simResult" hidden></dl>
+      <p class="small" id="simNote"></p>
+    </div>
+    <div>
+      <h2>Kauf-Check</h2>
+      <p class="sub">Reicht dein Guthaben für eine Order, ohne die Rücklage anzugreifen? Bis zum 31.12. zählt der höchste Soll-Wert des Jahres.</p>
+      <form id="ocForm" class="entryForm" novalidate>
+        <label>Guthaben auf dem Konto in € <input id="ocCash" type="number" min="0" step="0.01" inputmode="decimal"></label>
+        <label>Order inkl. Spesen in € <input id="ocOrder" type="number" min="0" step="0.01" inputmode="decimal"></label>
+        <label class="wide check"><input id="ocInAccount" type="checkbox"> Meine Rücklage liegt in diesem Guthaben</label>
+        <button class="btn" type="submit">Prüfen</button>
+      </form>
+      <p id="ocError" class="formError" hidden></p>
+      <p id="ocResult" class="ocResult" hidden></p>
     </div>
   </div>
 </section>
