@@ -241,6 +241,7 @@ function applySettingsToControls() {
   $<HTMLInputElement>("since").value = s.taxSimpleSince;
   $<HTMLSelectElement>("ibkrKz").value = s.brokerInterestKz;
   $<HTMLSelectElement>("derivTreatment").value = s.derivativesTreatment;
+  $<HTMLInputElement>("otherIncome").value = s.otherIncomeEur;
   $<HTMLInputElement>("buffer").value = String(s.bufferPct);
 }
 
@@ -318,6 +319,7 @@ function renderEmpty() {
   $("brokerBlock").hidden = true;
   $("kzSetting").hidden = true;
   $("derivSetting").hidden = true;
+  $("incomeSetting").hidden = true;
   $("copy").onclick = null;
 }
 
@@ -353,7 +355,11 @@ function render() {
 
   let report: YearReport;
   try {
-    const options: YearOptions = { brokerInterestKz: settings.brokerInterestKz, derivativesTreatment: settings.derivativesTreatment };
+    const options: YearOptions = {
+      brokerInterestKz: settings.brokerInterestKz,
+      derivativesTreatment: settings.derivativesTreatment,
+      otherIncomeEur: settings.otherIncomeEur,
+    };
     if (settings.taxSimpleSince) options.taxSimpleSince = settings.taxSimpleSince;
     if (state.rates) options.rates = state.rates;
     report = computeYear(data, state.year, options);
@@ -364,11 +370,11 @@ function render() {
     renderEmpty();
     return;
   }
-  const tax = report.tax275Eur.plus(report.tax25Eur);
+  const tax = report.tax275Eur.plus(report.tax25Eur).plus(report.tariffExtraTaxEur);
   const reserve = reserveTarget({
     basket275TaxEur: report.tax275Eur,
     bankInterestTaxEur: report.tax25Eur,
-    tariffExtraTaxEur: 0,
+    tariffExtraTaxEur: report.tariffExtraTaxEur,
     bufferRate: dec(settings.bufferPct).div(100),
   });
 
@@ -381,7 +387,10 @@ function render() {
           ? ` · ${state.duplicates} ${state.duplicates === 1 ? "doppelte Buchung" : "doppelte Buchungen"} nur einmal gezählt`
           : "");
   $("kzSetting").hidden = !data.interest.some((i) => i.source === "broker");
-  $("derivSetting").hidden = !data.trades.some((t) => t.kind === "derivative");
+  const hasDerivatives = data.trades.some((t) => t.kind === "derivative");
+  $("derivSetting").hidden = !hasDerivatives;
+  // Sonstiges Einkommen nur abfragen, wenn tarifbesteuerte Derivate vorkommen (PRODUKTPLAN, Einrichtung)
+  $("incomeSetting").hidden = !(hasDerivatives && settings.derivativesTreatment === "tariff");
   $("year").innerHTML = yearsOf(data)
     .map((y) => `<option value="${y}"${y === state.year ? " selected" : ""}>${y}</option>`)
     .join("");
@@ -405,6 +414,9 @@ function render() {
   const figs: Array<[string, Dec]> = [
     ["Steuer 27,5 %", report.tax275Eur],
     ["Steuer 25 % auf Zinsen", report.tax25Eur],
+    ...(report.derivativesTreatment === "tariff" && report.kz857.gt(0)
+      ? [["Mehrsteuer Optionen/Futures (Tarif)", report.tariffExtraTaxEur] as [string, Dec]]
+      : []),
     ["Nicht ausgeglichener Verlust", report.unusedLossEur],
     ["Ordergebühren, nicht abziehbar", report.feesEur],
     ...(report.taxSimpleSince ? [["Von Trade Republic einbehalten", report.brokerWithheldEur] as [string, Dec]] : []),
@@ -530,6 +542,11 @@ function render() {
     updateSettings({ brokerInterestKz: (e.target as HTMLSelectElement).value === "861" ? "861" : "863" }),
   );
   $<HTMLInputElement>("since").addEventListener("change", (e) => updateSettings({ taxSimpleSince: (e.target as HTMLInputElement).value }));
+  $<HTMLInputElement>("otherIncome").addEventListener("change", (e) => {
+    const v = (e.target as HTMLInputElement).value.trim();
+    // nur ganze oder Dezimalzahlen ≥ 0 übernehmen; sonst bleibt die Angabe leer (keine Schätzung)
+    updateSettings({ otherIncomeEur: /^\d+(\.\d+)?$/.test(v) ? v : "" });
+  });
   $<HTMLSelectElement>("derivTreatment").addEventListener("change", (e) =>
     updateSettings({ derivativesTreatment: (e.target as HTMLSelectElement).value === "special" ? "special" : "tariff" }),
   );

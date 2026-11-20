@@ -2,6 +2,7 @@ import { computeBasket275, type Dividend } from "./basket275.js";
 import { InsufficientPositionError, Positions, type Position, type Trade } from "./costBasis.js";
 import { dec, D, ZERO, type Dec } from "./decimal.js";
 import { runDerivatives, type DerivativeInput, type OpenDerivative } from "./derivatives.js";
+import { extraTaxOnTariffIncome, hasTariff } from "./tariff.js";
 import { formatEur } from "./format.js";
 import type { RateSource } from "./fx.js";
 import type { AssetKind, ImportedTrade, ImportResult, Unsupported } from "./import/model.js";
@@ -30,6 +31,11 @@ export interface YearOptions {
    * § 27a Abs. 2 Z 7 EStG) oder `special` = 27,5 %, KZ 995/896. Offene Frage an den Steuerberater, siehe docs/HANDOFF.md.
    */
   derivativesTreatment?: "tariff" | "special";
+  /**
+   * Geschätztes zu versteuerndes Einkommen des Jahres ohne Kapitalerträge (z. B. Gehalt nach Sozialversicherung).
+   * Nur nötig für die Mehrsteuer auf KZ 857 (Tarif); ohne Angabe wird sie nicht berechnet.
+   */
+  otherIncomeEur?: string;
 }
 
 export interface RealizedLine {
@@ -97,6 +103,10 @@ export interface YearReport {
   /** Einkünfte aus nicht verbrieften Derivaten zum Tarif (Saldo, kann negativ sein); 0 bei Einstellung 27,5 % */
   kz857: Dec;
   derivativesTreatment: "tariff" | "special";
+  /** Mehrsteuer auf KZ 857 nach Tarif: ESt(sonstiges Einkommen + KZ 857) − ESt(sonstiges Einkommen); 0 wenn nicht berechenbar */
+  tariffExtraTaxEur: Dec;
+  /** verwendetes sonstiges Einkommen, `null` ohne Angabe */
+  otherIncomeEur: Dec | null;
   /** offene Optionen und Futures am Ende der Daten (Short mit negativer Anzahl) */
   openDerivatives: OpenDerivative[];
   taxableBaseEur: Dec;
@@ -134,6 +144,11 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   const taxedByTr = (depot: string, date: string) => depot === TR_DEPOT && since !== null && date >= since;
   const inYear = (date: string) => date.startsWith(`${year}-`);
   const brokerInterestKz = options.brokerInterestKz ?? "863";
+  const otherIncomeRaw = (options.otherIncomeEur ?? "").trim();
+  if (otherIncomeRaw !== "" && !/^\d+(\.\d+)?$/.test(otherIncomeRaw)) {
+    throw new Error(`Das sonstige Einkommen „${otherIncomeRaw}“ ist keine gültige Zahl (z. B. 30000 oder 30000.50).`);
+  }
+  const otherIncome = otherIncomeRaw === "" ? null : dec(otherIncomeRaw);
 
   /**
    * Betrag in Fremdwährung zum EZB-Referenzkurs am Tag (EStR 2000 Rz 6201c). Ohne Kurs an diesem Tag wird nicht
@@ -438,14 +453,26 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
   const gainsOf = (kind: AssetKind) => realized.filter((r) => r.kind === kind).map((r) => r.gainEur);
   const derivativeGains = gainsOf("derivative");
   const kz857 = derivativesTreatment === "tariff" ? D.sum(ZERO, ...derivativeGains) : ZERO;
+  // Mehrsteuer auf KZ 857 nach Tarif (src/tariff.ts); nie mit einem geschätzten Einkommen oder einem fremden Jahrestarif
+  let tariffExtraTaxEur = ZERO;
   if (kz857.gt(0)) {
-    notComputed.push({
-      line: 0,
-      type: "KZ 857",
-      reason:
-        `Die Einkommensteuer auf Einkünfte aus nicht verbrieften Derivaten (KZ 857, ${formatEur(kz857)}, Tarif bis 55 %) rechnet die App noch nicht. ` +
-        `Die Rücklage enthält sie nicht.`,
-    });
+    if (otherIncome === null) {
+      notComputed.push({
+        line: 0,
+        type: "KZ 857",
+        reason:
+          `Für die Einkommensteuer auf KZ 857 (${formatEur(kz857)}, Tarif bis 55 %) fehlt die Angabe deines sonstigen Einkommens. ` +
+          `Ohne sie wird die Mehrsteuer nicht berechnet, und die Rücklage enthält sie nicht.`,
+      });
+    } else if (!hasTariff(year)) {
+      notComputed.push({
+        line: 0,
+        type: "KZ 857",
+        reason: `Der Einkommensteuertarif ${year} ist in der App noch nicht hinterlegt. Die Mehrsteuer auf KZ 857 (${formatEur(kz857)}) wird nicht berechnet.`,
+      });
+    } else {
+      tariffExtraTaxEur = extraTaxOnTariffIncome({ year, otherIncomeEur: otherIncome, kz857Eur: kz857 });
+    }
   }
   const basket = computeBasket275({
     realizedGainsEur: gainsOf("security"),
@@ -473,6 +500,8 @@ export function computeYear(data: ImportResult, year: number, options: YearOptio
     brokerInterestKz,
     kz857,
     derivativesTreatment,
+    tariffExtraTaxEur,
+    otherIncomeEur: otherIncome,
     openDerivatives: deriv.open,
     taxableBaseEur: basket.taxableBaseEur,
     unusedLossEur: basket.unusedLossEur,

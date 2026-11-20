@@ -1,25 +1,35 @@
 import { dec, D, ZERO, type Dec, type DecInput } from "./decimal.js";
 
-/** Tarifstufen 2026 nach § 33 Abs 1 EStG (Obergrenze der Stufe, Grenzsteuersatz). */
-const BRACKETS_2026: Array<[upTo: Dec | null, rate: Dec]> = [
-  [dec(13539), dec(0)],
-  [dec(21992), dec("0.20")],
-  [dec(36458), dec("0.30")],
-  [dec(70365), dec("0.40")],
-  [dec(104859), dec("0.48")],
-  [dec(1000000), dec("0.50")],
-  [null, dec("0.55")],
-];
+/**
+ * Einkommensteuertarif nach § 33 Abs. 1 EStG je Jahr (Obergrenze der Stufe, Grenzsteuersatz).
+ * Quelle: BMF, Steuertarif und Steuerabsetzbeträge (Stand 01.01.2026):
+ * https://www.bmf.gv.at/themen/steuern/arbeitnehmerveranlagung/steuertarif-steuerabsetzbetraege/steuertarif-steuerabsetzbetraege.html
+ * Die Grenzen bis 1 Mio. € werden jährlich an die Inflation angepasst (§ 33 Abs. 1a iVm § 33a EStG); ein Jahr ohne
+ * hinterlegte Werte wird nie mit dem Tarif eines anderen Jahres geschätzt.
+ */
+const TARIFF: Record<number, Array<[upTo: number | null, rate: string]>> = {
+  2024: [[12816, "0"], [20818, "0.20"], [34513, "0.30"], [66612, "0.40"], [99266, "0.48"], [1000000, "0.50"], [null, "0.55"]],
+  2025: [[13308, "0"], [21617, "0.20"], [35836, "0.30"], [69166, "0.40"], [103072, "0.48"], [1000000, "0.50"], [null, "0.55"]],
+  2026: [[13539, "0"], [21992, "0.20"], [36458, "0.30"], [70365, "0.40"], [104859, "0.48"], [1000000, "0.50"], [null, "0.55"]],
+};
+
+export const TARIFF_SOURCE =
+  "https://www.bmf.gv.at/themen/steuern/arbeitnehmerveranlagung/steuertarif-steuerabsetzbetraege/steuertarif-steuerabsetzbetraege.html";
+
+export const hasTariff = (year: number): boolean => year in TARIFF;
 
 /**
- * Einkommensteuer 2026 vor Absetzbeträgen.
+ * Einkommensteuer eines Jahres vor Absetzbeträgen.
  * Absetzbeträge bleiben bewusst unberücksichtigt: Die Rücklage fällt dadurch eher zu hoch als zu niedrig aus.
  */
-export function incomeTax2026(incomeEur: DecInput): Dec {
+export function incomeTax(year: number, incomeEur: DecInput): Dec {
+  const brackets = TARIFF[year];
+  if (!brackets) throw new Error(`Der Einkommensteuertarif ${year} ist in der App noch nicht hinterlegt.`);
   const income = D.max(ZERO, dec(incomeEur));
   let tax = ZERO;
   let lower = ZERO;
-  for (const [upTo, rate] of BRACKETS_2026) {
+  for (const [limit, rate] of brackets) {
+    const upTo = limit === null ? null : dec(limit);
     const top = upTo === null ? income : D.min(income, upTo);
     if (top.gt(lower)) tax = tax.plus(top.minus(lower).times(rate));
     if (upTo === null || income.lte(upTo)) break;
@@ -29,11 +39,12 @@ export function incomeTax2026(incomeEur: DecInput): Dec {
 }
 
 /**
- * Mehrsteuer durch tarifbesteuerte Kapitaleinkünfte (KZ 857, z. B. Optionen ohne freiwilligen KESt-Abzug).
+ * Mehrsteuer durch tarifbesteuerte Kapitaleinkünfte (KZ 857, z. B. Optionen ohne freiwilligen KESt-Abzug):
+ * ESt(sonstiges Einkommen + KZ 857) − ESt(sonstiges Einkommen), mit dem Tarif des Jahres (PRODUKTPLAN, Soll-Rücklage).
  * Ein negativer Saldo in KZ 857 senkt keine anderen Einkünfte.
  */
-export function extraTaxOnTariffIncome(args: { otherIncomeEur: DecInput; kz857Eur: DecInput }): Dec {
+export function extraTaxOnTariffIncome(args: { year: number; otherIncomeEur: DecInput; kz857Eur: DecInput }): Dec {
   const kz857 = D.max(ZERO, dec(args.kz857Eur));
   const other = dec(args.otherIncomeEur);
-  return incomeTax2026(other.plus(kz857)).minus(incomeTax2026(other));
+  return incomeTax(args.year, other.plus(kz857)).minus(incomeTax(args.year, other));
 }

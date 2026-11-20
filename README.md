@@ -19,7 +19,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/costBasis.ts` | Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG) |
 | `src/basket275.ts` | 27,5 %-Topf: KZ 994, 892, 863, 998, Verlustausgleich, Quellensteuer-Anrechnung |
 | `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
-| `src/tariff.ts` | Einkommensteuertarif 2026 und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
+| `src/tariff.ts` | Einkommensteuertarif 2024 bis 2026 (BMF) und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
 | `src/import/ibkrFlex.ts` | Import einer IBKR Activity Flex Query (XML): Trades, CashTransactions, OpenPositions |
@@ -27,7 +27,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritt 2.1 (nicht verbriefte Derivate) umgesetzt; offen sind 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger), 2.4 (Warnen und erinnern).
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate) und 2.2 (Tarif-Schätzung) umgesetzt; offen sind 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern).
 
 **Prüfassistent:** `checkBookings` prüft alle gespeicherten Buchungen aller Jahre mit festen Regeln (keine Sprach-KI) und meldet mit Schweregrad (Fehler, Warnung, Hinweis):
 - Verkauf ohne ausreichenden Bestand (Kauf vermutlich vor dem Exportzeitraum)
@@ -62,7 +62,7 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 ## Annahmen, die ein Steuerberater bestätigen muss
 
 - **Verlustausgleich mit Dividenden:** Die anrechenbare Quellensteuer wird auf die österreichische Steuer gedeckelt, die auf die nach dem Verlustausgleich verbleibenden Dividenden entfällt (`src/basket275.ts`).
-- **Tarif ohne Absetzbeträge:** Die Mehrsteuer aus KZ 857 wird eher zu hoch geschätzt (`src/tariff.ts`).
+- **Tarif ohne Absetzbeträge:** Die Mehrsteuer aus KZ 857 wird eher zu hoch geschätzt (`src/tariff.ts`). Die Tarifstufen sind je Jahr hinterlegt (2024, 2025, 2026 laut BMF); für ein Jahr ohne veröffentlichte Werte wird nicht mit einem anderen Jahr gerechnet.
 - **Trade-Republic-Derivate sind verbrieft:** Optionsscheine, Faktor-Zertifikate und Turbos landen in KZ 995/896 mit 27,5 % (`src/import/tradeRepublic.ts`).
 - **Zinsen auf dem Trade-Republic-Verrechnungskonto** gelten als Zinsen aus Geldeinlagen bei Kreditinstituten: KZ 861, 25 %.
 - **Krypto-Auslieferung ins eigene Wallet** ist ein Übertrag ohne Gewinn. Verkäufe außerhalb von Trade Republic erfasst die App noch nicht.
@@ -87,7 +87,7 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Nicht verbriefte Derivate (IBKR-Optionen, Futures):** Ohne freiwilligen KESt-Abzug gilt kein Sondersteuersatz (§ 27a Abs. 2 Z 7 EStG), also Tarif und KZ 857. Einstellung „Optionen/Futures“: Tarif (Standard, vorsichtig) oder 27,5 % in KZ 995/896, solange der Steuerberater nicht entschieden hat. Besteuert wird erst bei Verfall, Glattstellung oder Ausübung, nicht beim Zufluss der Prämie (EStR 2000 Rz 6176). Verfall: Stillhalter versteuert die Prämie, Inhaber hat einen Verlust in Höhe der Prämie. Glattstellung: Prämie gilt als Veräußerungserlös (§ 27a Abs. 3 Z 3 lit c EStG). Ausübung oder Zuteilung mit Lieferung: Prämie geht in Anschaffungskosten bzw. Veräußerungserlös der Aktien ein (Rz 6174a, 6176). Gleitender Durchschnittspreis je Kontrakt (§ 27a Abs. 4 Z 3); bei Short-Positionen analog die durchschnittliche Prämie (Annahme). Futures: Unterschied zwischen Eröffnungs- und Schließungswert laut IBKR (Differenzausgleich, Annahme).
 - **Erkennung von Verfall und Zuteilung (IBKR):** Codes laut [IBKR](https://ibkrguides.com/reportingreference/reportguide/codes_flex.htm): A, Ex, AEx, MEx = Zuteilung oder Ausübung, Ep = Verfall, GEA = nicht unterscheidbar (nicht berechnet). Zusätzlich muss am selben Tag eine passende Aktienbuchung stehen (Basiswert, Stückzahl = Kontrakte × Multiplikator, Kurs = Ausübungspreis); fehlt sie trotz Code A/Ex, wird nichts geschätzt. Ohne Code gilt eine Schließung zum Preis 0 nur am oder nach dem Verfallstag als Verfall.
 - **Spesen bei Optionen und Futures:** Beim Tarif mindern Kommissionen das Ergebnis (der Ausschluss von Anschaffungsnebenkosten in § 27a Abs. 4 Z 2 gilt nur für Einkünfte mit Sondersteuersatz; Annahme, offene Frage), bei 27,5 % nicht. Bei Ausübung oder Zuteilung wird nur die Prämie ohne Spesen übertragen.
-- **KZ 857 und Rücklage:** Die Einkommensteuer auf KZ 857 (Tarif) rechnet die App noch nicht (Schritt 2.2); bei positiver KZ 857 erscheint ein Hinweis. Ein negativer Saldo bleibt in KZ 857 und gleicht keine Einkünfte im 27,5 %-Topf aus (EStR 2000 Rz 6234, Annahme).
+- **KZ 857 und Rücklage:** Mehrsteuer = ESt(sonstiges Einkommen + KZ 857) − ESt(sonstiges Einkommen) mit dem Tarif des Jahres laut [BMF](https://www.bmf.gv.at/themen/steuern/arbeitnehmerveranlagung/steuertarif-steuerabsetzbetraege/steuertarif-steuerabsetzbetraege.html) (hinterlegt 2024 bis 2026; andere Jahre „nicht berechnet“). Das sonstige Einkommen ist eine Schätzung des Nutzers (zu versteuerndes Jahreseinkommen ohne Kapitalerträge) und wird nur abgefragt, wenn Optionen oder Futures vorkommen; ohne Angabe wird die Mehrsteuer nicht berechnet und ein Hinweis erscheint. Absetzbeträge bleiben unberücksichtigt, die Mehrsteuer fällt eher zu hoch aus. Ein negativer Saldo bleibt in KZ 857 und gleicht keine Einkünfte im 27,5 %-Topf aus (EStR 2000 Rz 6234, Annahme).
 - **IBKR, nicht berechnet:** CFDs (eigene Regeln, EStR 2000 Rz 6218d ff.), Devisentausch (Fremdwährungsgewinne laut EStR 2000 Rz 6201 f.), Optionsscheine und strukturierte Produkte (Anlageklassen WAR, IOPT; danach auch Verkäufe dieser Position), Ersatzzahlungen für Dividenden (Wertpapierleihe), Anleihezinsen und Stückzinsen.
 - **IBKR, Bestandsabgleich:** Weicht der Bestand laut Open Positions vom berechneten ab (z. B. Kauf vor dem Zeitraum der Flex Query), kommt ein Hinweis.
 - **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
