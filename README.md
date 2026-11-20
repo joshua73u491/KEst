@@ -21,13 +21,17 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
 | `src/tariff.ts` | Einkommensteuertarif 2024 bis 2026 (BMF) und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
+| `src/sollTimeline.ts` | Soll je Steuerjahr bis heute; im laufenden Jahr auch der Höchststand an allen bisherigen Buchungstagen |
+| `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
 | `src/import/ibkrFlex.ts` | Import einer IBKR Activity Flex Query (XML): Trades, CashTransactions, OpenPositions |
 | `src/import/model.ts`, `src/import/readAny.ts` | Gemeinsames Datenmodell aller Importe; Erkennung des Brokers am Dateiinhalt |
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate) und 2.2 (Tarif-Schätzung) umgesetzt; offen sind 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern).
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung) und 2.3 (Rücklagen-Ledger) umgesetzt; offen ist 2.4 (Warnen und erinnern).
+
+**Rücklage:** Der Nutzer trägt den aktuellen Marktwert seiner Rücklage mit Datum und Ort ein; es zählt der neueste Eintrag bis heute. Die App vergleicht ihn mit dem Soll aller Jahre, deren Steuer noch nicht als bezahlt markiert ist, und zeigt Fehlbetrag oder Überschuss. Was über dem Soll liegt, wird erst nach dem 31.12. frei (Testfall 6). Der Kriterien-Check prüft nur die Angaben des Nutzers (Anlageart, Meldefonds, Risikoklasse laut Basisinformationsblatt), warnt und blockiert nichts; er nennt kein Produkt. Einträge, Anlage und bezahlte Jahre liegen in der Historie und im Backup.
 
 **Prüfassistent:** `checkBookings` prüft alle gespeicherten Buchungen aller Jahre mit festen Regeln (keine Sprach-KI) und meldet mit Schweregrad (Fehler, Warnung, Hinweis):
 - Verkauf ohne ausreichenden Bestand (Kauf vermutlich vor dem Exportzeitraum)
@@ -90,6 +94,9 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **KZ 857 und Rücklage:** Mehrsteuer = ESt(sonstiges Einkommen + KZ 857) − ESt(sonstiges Einkommen) mit dem Tarif des Jahres laut [BMF](https://www.bmf.gv.at/themen/steuern/arbeitnehmerveranlagung/steuertarif-steuerabsetzbetraege/steuertarif-steuerabsetzbetraege.html) (hinterlegt 2024 bis 2026; andere Jahre „nicht berechnet“). Das sonstige Einkommen ist eine Schätzung des Nutzers (zu versteuerndes Jahreseinkommen ohne Kapitalerträge) und wird nur abgefragt, wenn Optionen oder Futures vorkommen; ohne Angabe wird die Mehrsteuer nicht berechnet und ein Hinweis erscheint. Absetzbeträge bleiben unberücksichtigt, die Mehrsteuer fällt eher zu hoch aus. Ein negativer Saldo bleibt in KZ 857 und gleicht keine Einkünfte im 27,5 %-Topf aus (EStR 2000 Rz 6234, Annahme).
 - **IBKR, nicht berechnet:** CFDs (eigene Regeln, EStR 2000 Rz 6218d ff.), Devisentausch (Fremdwährungsgewinne laut EStR 2000 Rz 6201 f.), Optionsscheine und strukturierte Produkte (Anlageklassen WAR, IOPT; danach auch Verkäufe dieser Position), Ersatzzahlungen für Dividenden (Wertpapierleihe), Anleihezinsen und Stückzinsen.
 - **IBKR, Bestandsabgleich:** Weicht der Bestand laut Open Positions vom berechneten ab (z. B. Kauf vor dem Zeitraum der Flex Query), kommt ein Hinweis.
+- **Freigabe der Rücklage erst nach dem 31.12.:** Im laufenden Jahr gilt für die Freigabe der höchste Soll-Wert, den das Jahr an einem Buchungstag bis heute erreicht hat, weil sich die Steuer bis Jahresende noch ändern kann (PRODUKTPLAN, Testfall 6). Ab dem 1.1. zählt das endgültige Soll des abgelaufenen Jahres, bis der Nutzer die Steuer als bezahlt markiert. Abgeschlossene Jahre zählen zum Soll, bis sie als bezahlt markiert sind; eine Vorauszahlung oder ein Bescheid wird nicht erfasst (`src/ledger.ts`, `src/sollTimeline.ts`).
+- **Ist = Marktwert laut Nutzer:** Die App fragt keinen Kontostand ab und rechnet keine Erträge der Rücklage hoch. Steuer auf Erträge der Rücklage selbst (z. B. Zinsen) ist nur im Soll enthalten, wenn diese Erträge in einem importierten Export stehen.
+- **Kriterien-Check:** Warnung ab Risikoklasse 3 laut Basisinformationsblatt (Entscheidung Joshua, 20.11.2026), bei Aktien-ETFs und Anleihen-ETFs mit langer Laufzeit, bei Nicht-Meldefonds und bei Fonds ohne bekannten Meldefonds-Status. Die Texte beschreiben nur Kriterien laut PRODUKTPLAN („Angelegte Rücklage: Regeln“) und empfehlen keine Anlage.
 - **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
 
 ## Daten

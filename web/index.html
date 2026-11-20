@@ -108,6 +108,31 @@ tr.zero td{color:var(--soft);font-weight:400}
 code{font-size:13px;overflow-wrap:anywhere}
 .small{font-size:14px;color:var(--soft);max-width:80ch}
 .small li{margin:4px 0}
+.ledger{border-bottom:1px solid var(--line)}
+.ledger h3{font:600 16px/1.3 Inter,sans-serif;margin:22px 0 6px}
+.ledger input,.ledger select{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:1.5px solid var(--line);padding:0 12px;background:var(--panel);color:var(--ink);color-scheme:inherit}
+.ledger select[disabled]{opacity:.5}
+.status{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border-radius:12px;overflow:hidden;margin:0 0 10px}
+.status div{background:var(--mist);padding:12px 14px}
+.status dt{color:var(--soft)}
+.status dd{font-size:24px}
+.status .short dd{color:var(--loss)}
+.status small{display:block;color:var(--soft);font-size:13px;margin-top:2px;white-space:normal}
+#ledgerNote,#invNote{margin:6px 0 0}
+.entryForm{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.entryForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
+.entryForm .wide{grid-column:1/-1}
+.entryForm .btn{justify-self:start}
+#ledgerError{color:var(--loss);font-size:14px;margin:8px 0 0}
+#entries,#invFindings,#paidList{list-style:none;margin:8px 0 0;padding:0}
+#entries li,#paidList li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+#entries li span,#paidList li span{display:flex;flex-direction:column;line-height:1.3}
+#entries small,#paidList small{color:var(--soft);font-size:13px}
+#invFindings li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:8px 0;border-top:1px solid var(--line);font-size:15px}
+.sev-ok .badge{background:color-mix(in srgb,var(--green) 18%,transparent);color:light-dark(#00703f,#2fd08a)}
+.invForm{display:flex;flex-wrap:wrap;gap:10px 16px}
+.invForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
+.link.ok{color:var(--green)}
 @media(max-width:900px){.hero .wrap,.grid{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:600px){#bars li{grid-template-columns:minmax(0,1fr) auto}.track{grid-column:1/-1;grid-row:2}dl{grid-template-columns:minmax(0,1fr)}table{font-size:13px}th,td{padding:6px 4px}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -142,7 +167,7 @@ code{font-size:13px;overflow-wrap:anywhere}
       </div>
       <p class="priv" id="storeNote"></p>
       <ul id="fileList"></ul>
-      <p class="priv">Mehrere Exporte und Broker werden zusammengeführt; Buchungen, die in mehreren Dateien vorkommen, zählen nur einmal. Das Backup enthält deine Exportdateien vollständig, bei Trade Republic auch Kartenzahlungen und Überweisungen. Bewahre es sicher auf.</p>
+      <p class="priv">Mehrere Exporte und Broker werden zusammengeführt; Buchungen, die in mehreren Dateien vorkommen, zählen nur einmal. Das Backup enthält deine Exportdateien vollständig, bei Trade Republic auch Kartenzahlungen und Überweisungen, sowie deine Rücklagen-Einträge. Bewahre es sicher auf.</p>
     </div>
     <div id="ratesBox" hidden>
       <p id="ratesStatus"></p>
@@ -176,6 +201,60 @@ code{font-size:13px;overflow-wrap:anywhere}
       </div>
     </div>
     <dl id="figs"></dl>
+  </div>
+</section>
+
+<section class="band ledger" id="ledgerBand">
+  <div class="wrap grid">
+    <div>
+      <h2>Deine Rücklage: Soll und Ist</h2>
+      <p class="sub">Das Geld legst du selbst beiseite. Die App vergleicht deinen eingetragenen Stand mit dem Soll aller Jahre, deren Steuer noch offen ist.</p>
+      <p class="sub" id="ledgerSample" hidden>Beispieldaten: Das Soll stammt aus den Beispieldaten, nicht aus deinen gespeicherten Dateien.</p>
+      <dl class="status" id="ledgerStatus"></dl>
+      <p class="small" id="ledgerNote"></p>
+      <div class="scroll"><table><thead><tr><th>Jahr</th><th>Stand</th><th class="num">Soll</th><th></th></tr></thead><tbody id="ledgerYears"></tbody></table></div>
+      <div id="paidBlock" hidden>
+        <h3>Steuer bezahlt</h3>
+        <ul id="paidList"></ul>
+      </div>
+    </div>
+    <div>
+      <h3 style="margin-top:0">Stand der Rücklage eintragen</h3>
+      <p class="sub">Trag den aktuellen Marktwert ein, nicht die Summe deiner Einzahlungen. Es zählt der neueste Eintrag bis heute.</p>
+      <form class="entryForm" id="entryForm" novalidate>
+        <label>Datum <input id="entryDate" type="date" required></label>
+        <label>Marktwert in € <input id="entryValue" type="number" min="0" step="0.01" inputmode="decimal" placeholder="z. B. 3025,50" required></label>
+        <label class="wide">Wo liegt das Geld? <input id="entryPlace" type="text" maxlength="80" placeholder="z. B. Tagesgeld bei meiner Bank"></label>
+        <label class="wide">Notiz <input id="entryNote" type="text" maxlength="120"></label>
+        <button class="btn" type="submit">Stand eintragen</button>
+      </form>
+      <p id="ledgerError" hidden></p>
+      <ul id="entries"></ul>
+      <h3>Kriterien-Check deiner Anlage</h3>
+      <p class="sub">Wo du die Rücklage anlegst, entscheidest du. Gib an, was für deine Anlage gilt (Meldefonds laut OeKB, Risikoklasse laut Basisinformationsblatt). Die App prüft nur diese Kriterien und warnt, sie blockiert nichts und empfiehlt keine Anlage und kein Produkt.</p>
+      <div class="invForm">
+        <label>Anlageart <select id="invKind">
+          <option value="">bitte wählen</option>
+          <option value="deposit">Tagesgeld oder Sparkonto</option>
+          <option value="moneyMarketFund">Geldmarktfonds oder Geldmarkt-ETF</option>
+          <option value="shortGovBonds">Kurzlaufende Staatsanleihen</option>
+          <option value="equityEtf">Aktien-ETF</option>
+          <option value="longBondEtf">Anleihen-ETF mit langer Laufzeit</option>
+          <option value="other">Andere Anlage</option>
+        </select></label>
+        <label>Meldefonds <select id="invFund">
+          <option value="">kein Fonds</option>
+          <option value="yes">ja</option>
+          <option value="no">nein</option>
+          <option value="unknown">weiß nicht</option>
+        </select></label>
+        <label>Risikoklasse (SRI) <select id="invSri">
+          <option value="">nicht angegeben</option>
+          <option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option>
+        </select></label>
+      </div>
+      <ul id="invFindings"></ul>
+    </div>
   </div>
 </section>
 
@@ -220,6 +299,7 @@ code{font-size:13px;overflow-wrap:anywhere}
       <li>Ausschüttungen von Fonds und ETFs und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
       <li>Optionen und Futures bei IBKR (nicht verbriefte Derivate) werden ohne freiwilligen KESt-Abzug zum Einkommensteuertarif besteuert (KZ 857). Ob stattdessen 27,5 % gelten, ist offen; die App rechnet standardmäßig mit dem Tarif und du kannst umstellen. Prämien von Stillhaltern zählen erst bei Verfall oder Glattstellung, bei Ausübung gehen sie in die Aktie ein.</li>
       <li>IBKR: Käufe und Verkäufe in Fremdwährung werden zum EZB-Referenzkurs am Handelstag umgerechnet. Ob Zinsen auf dem IBKR-Konto in KZ 863 oder KZ 861 gehören, ist offen; die App rechnet standardmäßig mit KZ 863 und du kannst umstellen.</li>
+      <li>Rücklage: Das Geld legst du selbst beiseite und trägst den Marktwert ein. Was über dem Soll liegt, gibt die App für das laufende Jahr erst nach dem 31.12. frei. Markiere ein Jahr als bezahlt, sobald du die Steuer dafür bezahlt hast; dann zählt es nicht mehr zum Soll.</li>
       <li>Steuereinfach heißt: Trade Republic zieht die KESt selbst ab und führt sie ans Finanzamt ab. Erträge ab dem angegebenen Tag zählen hier deshalb weder für die E1kv noch für die Rücklage.</li>
     </ul>
   </div>

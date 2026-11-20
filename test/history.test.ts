@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { addFile, combine, emptyHistory, fromBackup, removeFile, restoreBackup, toBackup, type History } from "../src/history.js";
 import { RateTable } from "../src/fx.js";
+import { addEntry, emptyLedger, markPaid } from "../src/ledger.js";
 import { computeYear } from "../src/yearReport.js";
 import { ibCash, ibkrXml, ibPosition, ibTrade } from "./helpers/ibkrXml.js";
 import { dividend, trade, trCsv } from "./helpers/trCsv.js";
@@ -134,6 +135,31 @@ describe("Backup als JSON-Datei", () => {
     expect(r.history.files.map((f) => f.name)).toEqual(["b.csv", "a.csv"]);
     expect(r.history.settings).toEqual(backup.settings);
     expect(restoreBackup(r.history, backup, () => `neu-${++n}`)).toMatchObject({ added: 0, skipped: 1 });
+  });
+
+  test("Rücklagen-Ledger (Einträge, Anlage, bezahlte Jahre) ist im Backup enthalten", () => {
+    let reserve = addEntry(emptyLedger(), { id: "r1", date: "2026-11-30", valueEur: "3025", place: "Tagesgeld", note: "Nov" });
+    reserve = markPaid({ ...reserve, investment: { kind: "moneyMarketFund", reportingFund: "yes", sri: 1 } }, 2025, "2026-06-30");
+    const h = { ...history(), reserve };
+    expect(fromBackup(toBackup(h, NOW))).toEqual(h);
+  });
+
+  test("älteres Backup ohne Rücklagen-Ledger: leerer Ledger", () => {
+    const old = JSON.stringify({ app: "KESt-Rücklage", format: 1, exportedAt: NOW, files: [], settings: {} });
+    expect(fromBackup(old).reserve).toEqual(emptyLedger());
+  });
+
+  test("ungültiger Rücklagen-Eintrag im Backup wird mit deutscher Meldung abgelehnt", () => {
+    const bad = JSON.stringify({ app: "KESt-Rücklage", format: 1, exportedAt: NOW, files: [], settings: {}, reserve: { entries: [{ id: "x", date: "gestern", valueEur: "1", place: "", note: "" }] } });
+    expect(() => fromBackup(bad)).toThrow(/Rücklagen-Eintrag 1/);
+  });
+
+  test("Wiederherstellen ergänzt Rücklagen-Einträge und bezahlte Jahre", () => {
+    const current = { ...emptyHistory(), reserve: addEntry(emptyLedger(), { id: "a", date: "2026-10-01", valueEur: "100", place: "", note: "" }) };
+    const backup = { ...emptyHistory(), reserve: markPaid(addEntry(emptyLedger(), { id: "b", date: "2026-11-01", valueEur: "200", place: "", note: "" }), 2025, "2026-06-30") };
+    const r = restoreBackup(current, backup, () => "neu");
+    expect(r.history.reserve.entries.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(r.history.reserve.paidYears).toEqual({ "2025": "2026-06-30" });
   });
 
   test("älteres Backup ohne Derivate-Einstellung erhält den vorsichtigen Standard (Tarif)", () => {

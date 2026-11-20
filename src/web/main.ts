@@ -7,7 +7,20 @@ import { formatLocations, SEVERITY_LABEL } from "../format.js";
 import { addFile, combine, emptyHistory, filePeriods, fromBackup, removeFile, restoreBackup, toBackup, type History } from "../history.js";
 import type { ImportResult } from "../import/model.js";
 import { parseExport } from "../import/readAny.js";
+import {
+  addEntry,
+  checkInvestment,
+  markPaid,
+  removeEntry,
+  reserveStatus,
+  unmarkPaid,
+  type InvestmentKind,
+  type Ledger,
+  type ReserveInvestment,
+  type YearSoll,
+} from "../ledger.js";
 import { reserveTarget } from "../reserve.js";
+import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
 import { clearHistory, loadHistory, saveHistory } from "./storage.js";
@@ -42,7 +55,13 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto", derivative: "Option/Future" } as const;
 const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zinsen" } as const;
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const today = () => new Date().toISOString().slice(0, 10);
+/** heutiges Datum in der Ortszeit des Geräts (JJJJ-MM-TT) */
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+/** JJJJ-MM-TT → TT.MM.JJJJ für Fließtext */
+const deDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
 
 const state: State = {
   history: emptyHistory(),
@@ -207,7 +226,7 @@ function readBackup(file: File) {
         state.history = r.history;
         state.mode = "history";
         state.error = "";
-        state.notice = `Backup geladen: ${r.added} ${r.added === 1 ? "Datei" : "Dateien"} ergänzt, ${r.skipped} bereits vorhanden. Einstellungen aus dem Backup übernommen.`;
+        state.notice = `Backup geladen: ${r.added} ${r.added === 1 ? "Datei" : "Dateien"} ergänzt, ${r.skipped} bereits vorhanden. Einstellungen aus dem Backup übernommen, Rücklagen-Einträge ergänzt.`;
         applySettingsToControls();
         persist();
         refresh();
@@ -225,7 +244,7 @@ function readBackup(file: File) {
 
 function clearAll() {
   const ok = window.confirm(
-    "Alle gespeicherten Dateien und Einstellungen in diesem Browser löschen? Das lässt sich nicht rückgängig machen. Sichere vorher ein Backup, wenn du die Daten noch brauchst.",
+    "Alle gespeicherten Dateien, Einstellungen und Rücklagen-Einträge in diesem Browser löschen? Das lässt sich nicht rückgängig machen. Sichere vorher ein Backup, wenn du die Daten noch brauchst.",
   );
   if (!ok) return;
   state.history = emptyHistory();
@@ -266,8 +285,9 @@ function renderStore() {
         )
         .join("")
     : `<li class="empty">Noch keine Datei gespeichert.</li>`;
-  $("backupSave").toggleAttribute("disabled", files.length === 0);
-  $("clearAll").toggleAttribute("disabled", files.length === 0);
+  const empty = files.length === 0 && !hasLedgerData(state.history.reserve);
+  $("backupSave").toggleAttribute("disabled", empty);
+  $("clearAll").toggleAttribute("disabled", empty);
   $("mine").hidden = !(state.mode === "sample" && files.length > 0);
   $("notice").hidden = !state.notice;
   $("notice").textContent = state.notice;
@@ -323,6 +343,162 @@ function renderEmpty() {
   $("copy").onclick = null;
 }
 
+function yearOptions(): YearOptions {
+  const s = state.history.settings;
+  const options: YearOptions = {
+    brokerInterestKz: s.brokerInterestKz,
+    derivativesTreatment: s.derivativesTreatment,
+    otherIncomeEur: s.otherIncomeEur,
+  };
+  if (s.taxSimpleSince) options.taxSimpleSince = s.taxSimpleSince;
+  if (state.rates) options.rates = state.rates;
+  return options;
+}
+
+/**
+ * Soll-Verlauf zwischenspeichern: Er rechnet jedes Jahr und im laufenden Jahr jeden Buchungstag neu. Bezahlte Jahre
+ * blendet erst `reserveStatus` aus, damit „Steuer bezahlt“ und „Rückgängig“ nichts neu rechnen müssen.
+ */
+let sollCache: { data: ImportResult; rates: RateTable | null; values: Map<string, YearSoll[]> } | null = null;
+function yearSolls(data: ImportResult, now: string): YearSoll[] {
+  if (!sollCache || sollCache.data !== data || sollCache.rates !== state.rates) sollCache = { data, rates: state.rates, values: new Map() };
+  const s = state.history.settings;
+  const key = JSON.stringify([s, now]);
+  let v = sollCache.values.get(key);
+  if (!v) {
+    v = sollTimeline(data, yearOptions(), s.bufferPct, now, {});
+    sollCache.values.set(key, v);
+  }
+  return v;
+}
+
+const statusCell = (label: string, value: string, note = "", cls = "") =>
+  `<div${cls ? ` class="${cls}"` : ""}><dt>${label}</dt><dd>${value}</dd>${note ? `<small>${note}</small>` : ""}</div>`;
+
+const hasLedgerData = (l: Ledger) => l.entries.length > 0 || l.investment !== null || Object.keys(l.paidYears).length > 0;
+
+function updateReserve(reserve: Ledger) {
+  state.history = { ...state.history, reserve };
+  persist();
+  render();
+}
+
+/** Bereich „Rücklage“: Soll offener Jahre gegen den eingetragenen Marktwert, Freigabe erst nach dem 31.12. */
+function renderLedger(data: ImportResult | null) {
+  const ledger = state.history.reserve;
+  const now = today();
+  const sample = state.mode === "sample";
+  $("ledgerSample").hidden = !sample;
+  let solls: YearSoll[] | null = null;
+  let calcError = "";
+  if (data) {
+    try {
+      solls = yearSolls(data, now);
+    } catch (e) {
+      calcError = `Das Soll konnte nicht berechnet werden: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+  const st = reserveStatus(solls ?? [], ledger, now);
+  const ist = st.istEur
+    ? statusCell("Ist", formatEur(st.istEur), `Stand ${deDate(st.istDate ?? "")}${st.istPlace ? `, ${esc(st.istPlace)}` : ""}`)
+    : statusCell("Ist", "–", "noch kein Stand eingetragen");
+  const cells = [
+    solls
+      ? statusCell("Soll offener Jahre", formatEur(st.sollEur), st.complete ? "" : "unvollständig berechnet, kann höher sein")
+      : statusCell("Soll offener Jahre", "–", data ? "nicht berechnet" : "noch keine Datei gespeichert"),
+    ist,
+  ];
+  if (solls && st.istEur) {
+    const short = st.shortfallEur.toDecimalPlaces(2).gt(0);
+    cells.push(
+      short
+        ? statusCell("Fehlbetrag", formatEur(st.shortfallEur), "so viel fehlt bis zum Soll", "short")
+        : statusCell("Überschuss", formatEur(st.surplusEur), "über dem Soll"),
+      statusCell(
+        "Freigegeben",
+        formatEur(st.releasableEur),
+        st.lockedUntil ? `${formatEur(st.lockedEur)} gesperrt, frei ab ${deDate(st.lockedUntil)}` : short ? "" : "über dem Soll und nicht gesperrt",
+      ),
+    );
+  } else {
+    cells.push(statusCell("Fehlbetrag oder Überschuss", "–"), statusCell("Freigegeben", "–"));
+  }
+  $("ledgerStatus").innerHTML = cells.join("");
+  $("ledgerNote").textContent =
+    (calcError ? `${calcError} ` : "") +
+    (solls && !st.complete ? "Mindestens ein offenes Jahr enthält Buchungen, die nicht berechnet sind (siehe „Nicht berechnet“ im jeweiligen Jahr). " : "") +
+    "Was über dem Soll liegt, gibt die App erst nach dem 31.12. frei: Bis dahin zählt für das laufende Jahr der höchste Soll-Wert des Jahres, auch wenn ein späterer Verlust das Soll senkt.";
+
+  const shown = st.years.filter((y) => !y.closed || y.sollEur.gt(0) || !y.complete).reverse();
+  $("ledgerYears").innerHTML = !solls
+    ? `<tr><td colspan="4" class="empty">${data ? "Nicht berechnet." : "Keine Daten."}</td></tr>`
+    : shown.length
+      ? shown
+          .map(
+            (y) =>
+              `<tr><td>${y.year}</td><td>${
+                y.closed ? "abgeschlossen, Steuer offen" : `laufend, höchstes Soll bisher ${formatEur(y.peakEur)}`
+              }${y.complete ? "" : " · unvollständig"}</td><td class="num">${formatEur(y.sollEur)}</td><td>${
+                y.closed && !sample ? `<button class="link ok" type="button" data-paid="${y.year}">Steuer bezahlt</button>` : ""
+              }</td></tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4" class="empty">Keine offenen Jahre.</td></tr>`;
+
+  const paid = Object.entries(ledger.paidYears).sort(([a], [b]) => b.localeCompare(a));
+  $("paidBlock").hidden = paid.length === 0;
+  $("paidList").innerHTML = paid
+    .map(
+      ([year, date]) =>
+        `<li><span><b>${esc(year)}</b><small>als bezahlt markiert am ${esc(deDate(date))}, zählt nicht mehr zum Soll</small></span>` +
+        `<button class="link" type="button" data-unpaid="${esc(year)}">Rückgängig</button></li>`,
+    )
+    .join("");
+
+  const entries = ledger.entries.map((e, i) => ({ e, i })).sort((a, b) => b.e.date.localeCompare(a.e.date) || b.i - a.i);
+  $("entries").innerHTML = entries
+    .map(({ e }) => {
+      const tag = e.id === st.istEntryId ? " · zählt als aktueller Stand" : e.date > now ? " · zählt erst ab diesem Tag" : "";
+      const details = [deDate(e.date), e.place, e.note].filter(Boolean).map(esc).join(" · ");
+      return (
+        `<li><span><b>${formatEur(dec(e.valueEur))}</b><small>${details}${tag}</small></span>` +
+        `<button class="link" type="button" data-entry="${esc(e.id)}">Entfernen</button></li>`
+      );
+    })
+    .join("");
+
+  const inv = ledger.investment;
+  $<HTMLSelectElement>("invKind").value = inv?.kind ?? "";
+  $<HTMLSelectElement>("invFund").value = inv?.reportingFund ?? "";
+  $<HTMLSelectElement>("invSri").value = inv?.sri ? String(inv.sri) : "";
+  const noDetails = !inv || inv.kind === "deposit";
+  $("invFund").toggleAttribute("disabled", noDetails);
+  $("invSri").toggleAttribute("disabled", noDetails);
+  $("invFindings").innerHTML = inv
+    ? checkInvestment(inv)
+        .map(
+          (f) =>
+            `<li class="sev-${f.severity}"><span class="badge">${f.severity === "ok" ? "Erfüllt" : "Warnung"}</span><span>${esc(f.text)}</span></li>`,
+        )
+        .join("")
+    : `<li class="empty">Wähle die Anlageart, dann prüft die App die Kriterien.</li>`;
+}
+
+function readInvestment(): ReserveInvestment | null {
+  const kind = $<HTMLSelectElement>("invKind").value as InvestmentKind | "";
+  if (!kind) return null;
+  if (kind === "deposit") return { kind, reportingFund: null, sri: null };
+  const fund = $<HTMLSelectElement>("invFund").value;
+  const sri = $<HTMLSelectElement>("invSri").value;
+  const isFund = kind === "moneyMarketFund" || kind === "equityEtf" || kind === "longBondEtf";
+  return {
+    kind,
+    // bei einem Fonds ist „kein Fonds“ widersprüchlich: dann „weiß nicht“
+    reportingFund: fund === "yes" || fund === "no" || fund === "unknown" ? fund : isFund ? "unknown" : null,
+    sri: sri ? Number(sri) : null,
+  };
+}
+
 function kzRows(r: YearReport): Array<[string, string, Dec]> {
   return [
     ["994", "Überschüsse aus Wertpapieren", r.kz994],
@@ -348,6 +524,7 @@ function render() {
   renderStore();
   const data = state.data;
   renderCheck(data);
+  renderLedger(data);
   if (!data) {
     renderEmpty();
     return;
@@ -355,14 +532,7 @@ function render() {
 
   let report: YearReport;
   try {
-    const options: YearOptions = {
-      brokerInterestKz: settings.brokerInterestKz,
-      derivativesTreatment: settings.derivativesTreatment,
-      otherIncomeEur: settings.otherIncomeEur,
-    };
-    if (settings.taxSimpleSince) options.taxSimpleSince = settings.taxSimpleSince;
-    if (state.rates) options.rates = state.rates;
-    report = computeYear(data, state.year, options);
+    report = computeYear(data, state.year, yearOptions());
   } catch (e) {
     state.error = `Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`;
     $("error").hidden = false;
@@ -566,6 +736,51 @@ function render() {
     backupInput.value = "";
   });
   $("clearAll").addEventListener("click", clearAll);
+
+  // Rücklage: Stand eintragen, Einträge entfernen, Jahre als bezahlt markieren, Kriterien der Anlage
+  $<HTMLInputElement>("entryDate").value = today();
+  $<HTMLFormElement>("entryForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const value = $<HTMLInputElement>("entryValue");
+    const note = $<HTMLInputElement>("entryNote");
+    if (value.value === "") {
+      // leer oder keine Zahl (das Zahlenfeld liefert dann einen leeren Wert)
+      $("ledgerError").hidden = false;
+      $("ledgerError").textContent = "Bitte trag den Marktwert in Euro ein, z. B. 3025,50.";
+      return;
+    }
+    try {
+      const reserve = addEntry(state.history.reserve, {
+        id: newId(),
+        date: $<HTMLInputElement>("entryDate").value,
+        valueEur: value.value,
+        place: $<HTMLInputElement>("entryPlace").value.trim(),
+        note: note.value.trim(),
+      });
+      $("ledgerError").hidden = true;
+      value.value = "";
+      note.value = "";
+      updateReserve(reserve);
+    } catch (err) {
+      $("ledgerError").hidden = false;
+      $("ledgerError").textContent = err instanceof Error ? err.message : String(err);
+    }
+  });
+  $("entries").addEventListener("click", (e) => {
+    const id = (e.target as HTMLElement).closest<HTMLElement>("[data-entry]")?.dataset.entry;
+    if (id) updateReserve(removeEntry(state.history.reserve, id));
+  });
+  $("ledgerYears").addEventListener("click", (e) => {
+    const year = (e.target as HTMLElement).closest<HTMLElement>("[data-paid]")?.dataset.paid;
+    if (year) updateReserve(markPaid(state.history.reserve, Number(year), today()));
+  });
+  $("paidList").addEventListener("click", (e) => {
+    const year = (e.target as HTMLElement).closest<HTMLElement>("[data-unpaid]")?.dataset.unpaid;
+    if (year) updateReserve(unmarkPaid(state.history.reserve, Number(year)));
+  });
+  for (const id of ["invKind", "invFund", "invSri"]) {
+    $(id).addEventListener("change", () => updateReserve({ ...state.history.reserve, investment: readInvestment() }));
+  }
   $("sample").addEventListener("click", () => {
     state.mode = "sample";
     state.notice = "";
