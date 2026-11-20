@@ -1,5 +1,7 @@
 # Regeln für dieses Repository
 
+Zuerst `docs/HANDOFF.md` lesen (Stand, Steuerregeln, offene Fragen), dann `docs/PRODUKTPLAN.md` (vollständiger Produktplan mit Roadmap) und `docs/UMSETZUNG.md` (Umsetzungsauftrag mit Joshuas Entscheidungen).
+
 - **Sprache:** Oberfläche, Fehlermeldungen, Doku und Testnamen auf Deutsch. Code-Bezeichner auf Englisch.
 - **Geld nur mit `decimal.js`** über `src/decimal.ts` (`dec`, `D`). Nie `number` für Beträge, Kurse oder Stückzahlen. Gerundet wird erst im Bericht.
 - **Testgetrieben:** Erst der Test (Rot), dann der Code (Grün). Jede Steuerregel hat einen von Hand nachgerechneten Testfall mit Quellenangabe im Kommentar, wo es eine gibt.
