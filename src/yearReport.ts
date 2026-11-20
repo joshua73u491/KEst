@@ -36,6 +36,20 @@ export interface YearOptions {
    * Nur nötig für die Mehrsteuer auf KZ 857 (Tarif); ohne Angabe wird sie nicht berechnet.
    */
   otherIncomeEur?: string;
+  /** Stichtag JJJJ-MM-TT: spätere Buchungen werden ignoriert (Soll-Verlauf für den Rücklagen-Ledger) */
+  asOf?: string;
+}
+
+/** Daten bis einschließlich `asOf`; der Bestandsabgleich laut Broker gilt nur fürs Ende des Auszugs und entfällt. */
+function cutOff(data: ImportResult, asOf: string): ImportResult {
+  return {
+    trades: data.trades.filter((t) => t.date <= asOf),
+    transfersOut: data.transfersOut.filter((t) => t.date <= asOf),
+    interest: data.interest.filter((i) => i.date <= asOf),
+    dividends: data.dividends.filter((d) => d.date <= asOf),
+    reportedPositions: [],
+    unsupported: data.unsupported,
+  };
 }
 
 export interface RealizedLine {
@@ -135,7 +149,9 @@ const withheldNote = (withheld: Dec) =>
 /**
  * Wertet alle Buchungen aus: Bestände über die gesamte Historie, Gewinne und Steuer nur für `year`.
  */
-export function computeYear(data: ImportResult, year: number, options: YearOptions = {}): YearReport {
+export function computeYear(input: ImportResult, year: number, options: YearOptions = {}): YearReport {
+  if (options.asOf !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(options.asOf)) throw new Error(`Der Stichtag „${options.asOf}“ ist ungültig.`);
+  const data = options.asOf ? cutOff(input, options.asOf) : input;
   const since = options.taxSimpleSince ?? null;
   if (since !== null && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
     throw new Error(`Das Datum für „steuereinfach seit“ ist ungültig: „${since}“. Erwartet wird JJJJ-MM-TT.`);

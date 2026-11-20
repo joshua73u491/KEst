@@ -4,6 +4,7 @@ import type { ImportResult } from "./import/model.js";
 import { parseExport, type Broker } from "./import/readAny.js";
 import { processTradeRepublicRows, readTradeRepublicRows, type TrSourceRow } from "./import/tradeRepublic.js";
 import type { XmlElement } from "./import/xml.js";
+import { addEntry, emptyLedger, markPaid, type InvestmentKind, type Ledger, type ReserveEntry, type ReserveInvestment } from "./ledger.js";
 
 /**
  * Lokale Steuerhistorie: alle importierten Dateien und die Einstellungen. Gespeichert wird sie nur im Browser
@@ -37,11 +38,13 @@ export interface Settings {
 export interface History {
   files: StoredFile[];
   settings: Settings;
+  /** Rücklagen-Ledger: eingetragene Marktwerte, gewählte Anlage, bezahlte Jahre */
+  reserve: Ledger;
 }
 
 export const DEFAULT_SETTINGS: Settings = { taxSimpleSince: "", brokerInterestKz: "863", bufferPct: 10, derivativesTreatment: "tariff", otherIncomeEur: "" };
 
-export const emptyHistory = (): History => ({ files: [], settings: { ...DEFAULT_SETTINGS } });
+export const emptyHistory = (): History => ({ files: [], settings: { ...DEFAULT_SETTINGS }, reserve: emptyLedger() });
 
 /**
  * Prüft eine Datei und nimmt sie in die Historie auf. Eine ungültige Datei wirft eine deutsche Meldung;
@@ -158,7 +161,7 @@ const FORMAT = 1;
 
 /** Backup als JSON-Datei: Originaldateien und Einstellungen. */
 export function toBackup(history: History, exportedAt: string): string {
-  return JSON.stringify({ app: APP, format: FORMAT, exportedAt, files: history.files, settings: history.settings }, null, 2);
+  return JSON.stringify({ app: APP, format: FORMAT, exportedAt, files: history.files, settings: history.settings, reserve: history.reserve }, null, 2);
 }
 
 /** Liest ein Backup und prüft jede Datei erneut. Wirft deutsche Meldungen. */
@@ -171,7 +174,7 @@ export function fromBackup(text: string): History {
     throw notBackup();
   }
   if (typeof raw !== "object" || raw === null || (raw as { app?: unknown }).app !== APP) throw notBackup();
-  const b = raw as { format?: unknown; files?: unknown; settings?: unknown };
+  const b = raw as { format?: unknown; files?: unknown; settings?: unknown; reserve?: unknown };
   if (typeof b.format !== "number" || b.format > FORMAT) {
     throw new Error("Das Backup stammt aus einer neueren Version der App und kann hier nicht gelesen werden.");
   }
@@ -197,7 +200,39 @@ export function fromBackup(text: string): History {
     derivativesTreatment: s.derivativesTreatment === "special" ? "special" : "tariff",
     otherIncomeEur: typeof s.otherIncomeEur === "string" && /^(\d+(\.\d+)?)?$/.test(s.otherIncomeEur) ? s.otherIncomeEur : "",
   };
-  return { files, settings };
+  return { files, settings, reserve: ledgerFromBackup(b.reserve) };
+}
+
+const KINDS = new Set<InvestmentKind>(["deposit", "moneyMarketFund", "shortGovBonds", "equityEtf", "longBondEtf", "other"]);
+
+/** Liest den Rücklagen-Ledger aus einem Backup; ältere Backups ohne Ledger ergeben einen leeren. */
+function ledgerFromBackup(raw: unknown): Ledger {
+  if (raw === undefined || raw === null) return emptyLedger();
+  const r = raw as { entries?: unknown; investment?: unknown; paidYears?: unknown };
+  let ledger = emptyLedger();
+  for (const [i, e] of (Array.isArray(r.entries) ? r.entries : []).entries()) {
+    const x = e as Partial<ReserveEntry>;
+    try {
+      if (typeof x?.id !== "string") throw new Error();
+      ledger = addEntry(ledger, { id: x.id, date: String(x.date ?? ""), valueEur: String(x.valueEur ?? ""), place: String(x.place ?? ""), note: String(x.note ?? "") });
+    } catch {
+      throw new Error(`Das Backup ist beschädigt: Rücklagen-Eintrag ${i + 1} ist ungültig.`);
+    }
+  }
+  const inv = r.investment as Partial<ReserveInvestment> | null | undefined;
+  if (inv && typeof inv === "object" && KINDS.has(inv.kind as InvestmentKind)) {
+    ledger.investment = {
+      kind: inv.kind as InvestmentKind,
+      reportingFund: inv.reportingFund === "yes" || inv.reportingFund === "no" || inv.reportingFund === "unknown" ? inv.reportingFund : null,
+      sri: typeof inv.sri === "number" && Number.isInteger(inv.sri) && inv.sri >= 1 && inv.sri <= 7 ? inv.sri : null,
+    };
+  }
+  if (r.paidYears && typeof r.paidYears === "object") {
+    for (const [year, date] of Object.entries(r.paidYears as Record<string, unknown>)) {
+      if (/^\d{4}$/.test(year) && typeof date === "string") ledger = markPaid(ledger, Number(year), date);
+    }
+  }
+  return ledger;
 }
 
 /**
@@ -216,5 +251,12 @@ export function restoreBackup(current: History, backup: History, newId: () => st
     files.push({ ...f, id: files.some((x) => x.id === f.id) ? newId() : f.id });
     added++;
   }
-  return { history: { files, settings: { ...backup.settings } }, added, skipped };
+  // Rücklagen-Ledger: Einträge ergänzen (gleiche ID nur einmal), Anlage und bezahlte Jahre aus dem Backup übernehmen
+  const known = new Set(current.reserve.entries.map((e) => e.id));
+  const reserve: Ledger = {
+    entries: [...current.reserve.entries, ...backup.reserve.entries.filter((e) => !known.has(e.id))],
+    investment: backup.reserve.investment ?? current.reserve.investment,
+    paidYears: { ...current.reserve.paidYears, ...backup.reserve.paidYears },
+  };
+  return { history: { files, settings: { ...backup.settings }, reserve }, added, skipped };
 }
