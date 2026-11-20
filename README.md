@@ -25,6 +25,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/setup.ts`, `src/web/setupWizard.ts` | Einrichtungsassistent: Anleitung zum Export je Broker (mit Platz für Screenshots), Sofortprüfung der Datei, drei Fragen |
 | `src/simulator.ts` | Verkaufs-Simulator (Gewinn mit gleitendem Durchschnitt, Steuer des Jahres ohne und mit dem Verkauf, Soll vorher und nachher) und Kauf-Check (Guthaben nach Abzug der Rücklage) |
 | `src/e1kvReport.ts`, `src/rules.ts` | E1kv-Bericht als PDF (ohne Bibliothek, im Browser) und CSV (Excel, Strichpunkt): Kennzahlen, Steuer und Soll, Einstellungen, Belegliste mit Fundstellen, nicht Berechnetes, Regelversion, Hinweis „Berechnungstool, keine Steuerberatung“ |
+| `src/pwa/files.ts`, `src/pwa/png.ts`, `scripts/build-web.ts` | Installierbare Web-App: Manifest, Service Worker (offline), Symbole als PNG/SVG, Content-Security-Policy, Header für statisches Hosting |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -34,7 +35,9 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`; Joshua lässt sie parallel klären und hat den Weiterbau freigegeben (20.11.2026). Phase 3: 3.1 (Einrichtungsassistent), 3.2 (DEGIRO-Import) 3.3 (Verkaufs-Simulator und Kauf-Check) und 3.4 (E1kv-Bericht als PDF und CSV) umgesetzt.
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`; Joshua lässt sie parallel klären und hat den Weiterbau freigegeben (20.11.2026). Phase 3: 3.1 (Einrichtungsassistent), 3.2 (DEGIRO-Import) 3.3 (Verkaufs-Simulator und Kauf-Check) 3.4 (E1kv-Bericht als PDF und CSV) und 3.5 (installierbare Web-App) umgesetzt.
+
+**Installierbare Web-App:** `npm run build:web` erzeugt neben `dist/kest-app.html` den Ordner `dist/pwa/` für statisches Hosting mit HTTPS. Die App lässt sich installieren und läuft nach dem ersten Besuch offline. Sie lädt keine Schriften von Google, und eine Content-Security-Policy erlaubt nur das eigene Skript und die EZB-Datenschnittstelle. Anleitung und offene Entscheidungen: `docs/HOSTING.md`.
 
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 

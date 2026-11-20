@@ -988,6 +988,11 @@ function render() {
     runOrderCheck();
   });
 
+  // Installierbare Web-App (Schritt 3.5): Service Worker nur in der gehosteten Fassung mit Manifest, nicht in der Einzeldatei
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
+    navigator.serviceWorker.register("sw.js").catch(() => undefined);
+  }
+
   // Einrichtungsassistent (Schritt 3.1): beim ersten Besuch automatisch, sonst über den Knopf „Einrichtung“
   const wizard = initSetupWizard({
     history: () => state.history,
