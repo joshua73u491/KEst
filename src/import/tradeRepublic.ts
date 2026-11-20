@@ -1,4 +1,5 @@
 import { dec, type Dec } from "../decimal.js";
+import { formatEur } from "../format.js";
 import { parseCsvTable } from "./csv.js";
 
 /** Steuertopf eines Wertpapiers. */
@@ -16,6 +17,8 @@ export interface ImportedTrade {
   /** Kurswert in EUR ohne Spesen */
   amountEur: string;
   feeEur: string;
+  /** von Trade Republic einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten, negativ = gutgeschrieben) */
+  withheldEur: string;
   kind: AssetKind;
   name: string;
 }
@@ -32,8 +35,39 @@ export interface ImportedTransfer {
 }
 
 export interface ImportedInterest {
+  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
+  line: number;
   date: string;
   amountEur: string;
+  /** einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten) */
+  withheldEur: string;
+  /** gesetzt bei Zinsen aus einem Wertpapier (z. B. Anleihe), leer bei Zinsen auf dem Verrechnungskonto */
+  isin: string;
+}
+
+/**
+ * Art der Ausschüttung laut Export:
+ * - `stock`: Dividende einer Aktie (Buchungstyp DIVIDEND, Anlageklasse STOCK)
+ * - `fund`: Ausschüttung eines Fonds oder ETF (DIVIDEND oder DISTRIBUTION, Anlageklasse FUND/ETF)
+ * - `capitalDistribution`: DIVIDEND_EQUIVALENT_PAYMENT („Capital Distribution“), ob Dividende oder Einlagenrückzahlung, ist offen
+ */
+export type DistributionKind = "stock" | "fund" | "capitalDistribution";
+
+export interface ImportedDividend {
+  /** Zeile in der CSV-Datei (Kopfzeile = 1) */
+  line: number;
+  isin: string;
+  depot: string;
+  date: string;
+  datetime: string;
+  name: string;
+  kind: DistributionKind;
+  /** Bruttobetrag in EUR (Spalte `amount`) */
+  grossEur: string;
+  /** einbehaltene Steuer laut Spalte `tax` (positiv = einbehalten, negativ = gutgeschrieben) */
+  withheldEur: string;
+  /** Originalwährung laut Export; leer, wenn in EUR ausgeschüttet */
+  originalCurrency: string;
 }
 
 export interface Unsupported {
@@ -51,6 +85,7 @@ export interface ImportResult {
   trades: ImportedTrade[];
   transfersOut: ImportedTransfer[];
   interest: ImportedInterest[];
+  dividends: ImportedDividend[];
   unsupported: Unsupported[];
 }
 
@@ -87,6 +122,21 @@ const REQUIRED_COLUMNS = ["datetime", "date", "category", "type", "asset_class",
 
 const FUND_CLASSES = new Set(["FUND", "ETF"]);
 
+/**
+ * Buchungstypen für Ausschüttungen im Transaktionsexport. Quelle: der quelloffene Trade-Republic-CSV-Importer von
+ * Portfolio Performance (TradeRepublicCSVExtractor.processCash/processCashDividend, Stand Commit 96f6040, 10.10.2026):
+ * https://github.com/portfolio-performance/portfolio/blob/96f6040818d5b5e8aeaca63e60e7e6857b4befa2/name.abuchen.portfolio/src/name/abuchen/portfolio/datatransfer/traderepublic/TradeRepublicCSVExtractor.java
+ * Dort: `amount` = Bruttobetrag, `tax` = einbehaltene Steuer (negativ), negativer `amount` = Storno einer Ausschüttung.
+ */
+const DISTRIBUTION_TYPES = new Set(["DIVIDEND", "DISTRIBUTION", "DIVIDEND_EQUIVALENT_PAYMENT"]);
+
+function distributionKind(type: string, assetClass: string): DistributionKind | null {
+  if (FUND_CLASSES.has(assetClass) && (type === "DIVIDEND" || type === "DISTRIBUTION")) return "fund";
+  if (assetClass === "STOCK" && type === "DIVIDEND") return "stock";
+  if (assetClass === "STOCK" && type === "DIVIDEND_EQUIVALENT_PAYMENT") return "capitalDistribution";
+  return null;
+}
+
 const HOW_TO_EXPORT =
   "Exportiere die Datei in der Trade-Republic-App unter Profil → Kontoauszüge → Transaktionsexport (Zeitraum seit Kontoeröffnung) und verwende sie unverändert.";
 
@@ -121,6 +171,13 @@ function num(row: Record<string, string>, column: string): Dec {
   }
 }
 
+/** Einbehaltene Steuer laut Spalte `tax`: im Export negativ, hier positiv. Leer = nichts einbehalten. */
+function withheldOf(row: Record<string, string>): string {
+  if ((row.tax ?? "").trim() === "") return "0";
+  const tax = num(row, "tax");
+  return tax.isZero() ? "0" : tax.negated().toString();
+}
+
 function dateOf(row: Record<string, string>): string {
   const date = row.date ?? "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new RowError(`Datum „${date}“ ist ungültig`);
@@ -133,10 +190,12 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
   const rows = table.rows.map((row, i) => ({ row, line: i + 2 }));
   rows.sort((a, b) => (a.row.datetime ?? "").localeCompare(b.row.datetime ?? ""));
 
-  const result: ImportResult = { trades: [], transfersOut: [], interest: [], unsupported: [] };
+  const result: ImportResult = { trades: [], transfersOut: [], interest: [], dividends: [], unsupported: [] };
   const flag = (line: number, type: string, reason: string, affects?: Unsupported["affects"]) =>
     result.unsupported.push(affects ? { line, type, reason, affects } : { line, type, reason });
   const fundsNoted = new Set<string>();
+  /** Stornos (negativer Betrag), werden nach dem Einlesen mit der ursprünglichen Ausschüttung verrechnet */
+  const reversals: Array<{ dividend: ImportedDividend; label: string }> = [];
 
   for (const { row, line } of rows) {
     const category = row.category ?? "";
@@ -150,7 +209,44 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
         if (IGNORED_CASH_TYPES.has(type)) continue;
         if (type === "INTEREST_PAYMENT") {
           if (row.currency !== "EUR") flag(line, label, `Währung ${row.currency} wird noch nicht unterstützt`);
-          else result.interest.push({ date: dateOf(row), amountEur: num(row, "amount").toString() });
+          else
+            result.interest.push({
+              line,
+              date: dateOf(row),
+              amountEur: num(row, "amount").toString(),
+              withheldEur: withheldOf(row),
+              isin: symbol.trim(),
+            });
+          continue;
+        }
+        if (DISTRIBUTION_TYPES.has(type)) {
+          const assetClass = row.asset_class ?? "";
+          const kind = distributionKind(type, assetClass);
+          if (!kind) {
+            flag(line, label, `Ausschüttung (${type}) für Anlageklasse ${assetClass || "(leer)"} wird noch nicht zugeordnet`);
+            continue;
+          }
+          if (row.currency !== "EUR") {
+            flag(line, label, `Währung ${row.currency} wird noch nicht unterstützt`);
+            continue;
+          }
+          if (symbol.trim() === "") throw new RowError("ISIN fehlt");
+          const gross = num(row, "amount");
+          if (gross.isZero()) throw new RowError("Betrag 0");
+          const entry: ImportedDividend = {
+            line,
+            isin: symbol.trim(),
+            depot: DEPOT,
+            date: dateOf(row),
+            datetime: row.datetime ?? "",
+            name: row.name ?? "",
+            kind,
+            grossEur: gross.toString(),
+            withheldEur: withheldOf(row),
+            originalCurrency: (row.original_currency ?? "").trim() === "EUR" ? "" : (row.original_currency ?? "").trim(),
+          };
+          if (gross.lt(0)) reversals.push({ dividend: entry, label });
+          else result.dividends.push(entry);
           continue;
         }
         flag(line, label, "Unbekannter Buchungstyp");
@@ -194,14 +290,11 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
           quantity: quantity.toString(),
           amountEur: num(row, "amount").abs().toString(),
           feeEur: (row.fee ?? "").trim() === "" ? "0" : num(row, "fee").abs().toString(),
+          withheldEur: withheldOf(row),
           kind,
           name: row.name ?? "",
         };
         result.trades.push(trade);
-        const tax = (row.tax ?? "").trim();
-        if (tax !== "" && !num(row, "tax").isZero()) {
-          flag(line, label, `Steuerbetrag ${tax} in Spalte tax wird noch nicht angerechnet`);
-        }
         if (FUND_CLASSES.has(assetClass) && !fundsNoted.has(isin)) {
           fundsNoted.add(isin);
           flag(
@@ -217,6 +310,35 @@ export function parseTradeRepublicCsv(text: string): ImportResult {
     } catch (e) {
       if (!(e instanceof RowError)) throw e;
       flag(line, label, e.message, affects);
+    }
+  }
+
+  // Storno: hebt die frühere Ausschüttung derselben ISIN auf, die es genau umkehrt (Betrag und Steuer mit
+  // umgekehrtem Vorzeichen). Ohne passendes Gegenstück wird nichts verrechnet, sondern gemeldet.
+  for (const { dividend: rev, label } of reversals) {
+    const i = result.dividends.findIndex(
+      (d) =>
+        d.isin === rev.isin &&
+        d.datetime <= rev.datetime &&
+        dec(d.grossEur).eq(dec(rev.grossEur).negated()) &&
+        dec(d.withheldEur).eq(dec(rev.withheldEur).negated()),
+    );
+    const original = result.dividends[i];
+    if (!original) {
+      flag(
+        rev.line,
+        label,
+        `Storno einer Ausschüttung von ${rev.isin} (${formatEur(rev.grossEur)}) ohne passende ursprüngliche Buchung. Nicht berechnet, bitte prüfen.`,
+      );
+      continue;
+    }
+    result.dividends.splice(i, 1);
+    if (original.date.slice(0, 4) !== rev.date.slice(0, 4)) {
+      flag(
+        rev.line,
+        label,
+        `Ausschüttung von ${rev.isin} vom ${original.date} wurde am ${rev.date} storniert. Eine Neubuchung zählt im Jahr ihres Buchungsdatums; bitte prüfen, welchem Jahr sie zuzurechnen ist.`,
+      );
     }
   }
   return result;

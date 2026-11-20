@@ -43,11 +43,12 @@ h2{font-size:22px;line-height:1.2;margin:0 0 4px}
 .note{margin:0;max-width:44ch}
 dl{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;margin:0;background:color-mix(in srgb,var(--on) 30%,transparent);border-radius:12px;overflow:hidden}
 dl div{background:var(--band);padding:14px 16px}
+dl div:last-child:nth-child(odd){grid-column:1/-1}
 dt{font-size:13px;color:color-mix(in srgb,var(--on) 86%,transparent)}
 dd{margin:2px 0 0;font-size:26px;white-space:nowrap}
 .ctrl{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-top:18px}
 .ctrl label{font-size:14px;display:flex;gap:8px;align-items:center}
-select{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:0;padding:0 12px;background:var(--on);color:#0b0b10}
+select,input[type=date]{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:0;padding:0 12px;background:var(--on);color:#0b0b10;color-scheme:light}
 input[type=range]{accent-color:#0b0b10;width:150px;height:44px}
 .grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:clamp(24px,4vw,56px)}
 .sub{color:var(--soft);font-size:14px;margin:0 0 14px}
@@ -89,7 +90,7 @@ code{font-size:13px;overflow-wrap:anywhere}
   <div class="wrap">
     <div class="brand">KESt-Rücklage</div>
     <h1>Wie viel du für die Steuer zurücklegen musst</h1>
-    <p class="lead">Für Österreich und Broker ohne automatischen KESt-Abzug. Zieh deinen Trade-Republic-Transaktionsexport hinein (App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung).</p>
+    <p class="lead">Für Österreich und Broker ohne automatischen KESt-Abzug. Zieh deinen Trade-Republic-Transaktionsexport hinein (App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung). Zieht Trade Republic bei dir die KESt schon ab (steuereinfach), gib unten an, seit wann.</p>
     <div class="import">
       <div id="drop">
         <label class="btn" for="file">CSV-Datei wählen</label>
@@ -112,6 +113,7 @@ code{font-size:13px;overflow-wrap:anywhere}
       <div class="ctrl">
         <label>Jahr <select id="year"></select></label>
         <label>Sicherheitspuffer <input id="buffer" type="range" min="0" max="30" step="5" value="10"> <b id="bufferOut">10 %</b></label>
+        <label title="Leer lassen, wenn Trade Republic bei dir keine KESt abzieht">Steuereinfach seit <input id="since" type="date"></label>
       </div>
     </div>
     <dl id="figs"></dl>
@@ -127,7 +129,7 @@ code{font-size:13px;overflow-wrap:anywhere}
     </div>
     <div>
       <div class="head"><h2>Für deine E1kv</h2><button class="btn ghost" id="copy" type="button">Kennzahlen kopieren</button></div>
-      <p class="sub">Ausländische Kapitaleinkünfte, Verluste als positiver Betrag.</p>
+      <p class="sub" id="kzSub">Ausländische Kapitaleinkünfte, Verluste als positiver Betrag.</p>
       <div class="scroll"><table><thead><tr><th>Kennzahl</th><th>Bedeutung</th><th class="num">Betrag</th></tr></thead><tbody id="kz"></tbody></table></div>
     </div>
   </div>
@@ -136,6 +138,16 @@ code{font-size:13px;overflow-wrap:anywhere}
 <section class="band foot">
   <div class="wrap">
     <div id="todo" hidden><h2>Nicht berechnet, bitte prüfen</h2><ul id="todoList"></ul></div>
+    <div id="divBlock" hidden style="margin-bottom:28px">
+      <h2>Dividenden</h2>
+      <p class="sub">Ausländische Quellensteuer ist höchstens bis zum Satz im Doppelbesteuerungsabkommen (DBA) anrechenbar. Gleichen Verluste Dividenden aus, sinkt der anrechenbare Betrag (KZ 998).</p>
+      <div class="scroll"><table><thead><tr><th>Datum</th><th>Wertpapier</th><th class="num">Brutto</th><th class="num">Einbehalten</th><th class="num">Anrechenbar</th></tr></thead><tbody id="div"></tbody></table></div>
+    </div>
+    <div id="brokerBlock" hidden style="margin-bottom:28px">
+      <h2>Von Trade Republic bereits versteuert</h2>
+      <p class="sub" id="brokerSub"></p>
+      <div class="scroll"><table><thead><tr><th>Datum</th><th>Buchung</th><th class="num">Ertrag laut App</th><th class="num">Einbehalten</th></tr></thead><tbody id="broker"></tbody></table></div>
+    </div>
     <h2>Offene Positionen</h2>
     <p class="sub">Diese Anschaffungskosten zählen, wenn du später verkaufst.</p>
     <div class="scroll"><table><thead><tr><th>Wertpapier</th><th class="num">Stück</th><th class="num">Ø Preis</th><th class="num">Anschaffungskosten</th></tr></thead><tbody id="open"></tbody></table></div>
@@ -145,6 +157,8 @@ code{font-size:13px;overflow-wrap:anywhere}
       <li>Verluste gleichen Gewinne nur im selben Kalenderjahr aus, ein Vortrag ins nächste Jahr ist nicht möglich.</li>
       <li>Trade-Republic-Derivate (Optionsscheine, Turbos) gelten als verbrieft und werden mit 27,5 % gerechnet.</li>
       <li>Krypto, die du in ein eigenes Wallet überträgst, wird als Übertrag ohne Gewinn behandelt. Spätere Verkäufe außerhalb von Trade Republic sind hier nicht enthalten.</li>
+      <li>Ausschüttungen von Fonds und ETFs, Dividenden in Fremdwährung und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
+      <li>Steuereinfach heißt: Trade Republic zieht die KESt selbst ab und führt sie ans Finanzamt ab. Erträge ab dem angegebenen Tag zählen hier deshalb weder für die E1kv noch für die Rücklage.</li>
     </ul>
   </div>
 </section>

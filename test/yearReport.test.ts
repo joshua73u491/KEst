@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
-import { trade, trCsv, type TrRow } from "./helpers/trCsv.js";
+import { dividend, interest, trade, trCsv, type TrRow } from "./helpers/trCsv.js";
 
 const sample = readFileSync(new URL("./fixtures/tr-beispiel.csv", import.meta.url), "utf8");
 
@@ -143,5 +143,219 @@ describe("Jahresauswertung: Randfälle", () => {
       trade("SELL", "2026-03-02T10:00:00.000Z", "IE0000000001", "1", "60.00", { ...fund, tax: "-1.00" }),
     );
     expect(r.realized.map((x) => x.gainEur.toString())).toEqual(["10"]);
+  });
+
+  test("Steuer in Spalte tax bei einem nicht steuereinfachen Konto wird nicht still übergangen", () => {
+    const r = year(
+      trade("BUY", "2026-01-02T10:00:00.000Z", "US0000000009", "1", "8.00"),
+      trade("SELL", "2026-03-02T10:00:00.000Z", "US0000000009", "1", "10.00", { tax: "-0.55" }),
+    );
+    expect(r.kz994.toString()).toBe("2");
+    expect(r.notComputed).toEqual([
+      {
+        line: 3,
+        type: "TRADING/SELL",
+        reason:
+          "Trade Republic hat 0,55 € Steuer einbehalten (Spalte tax). Bei einem Konto ohne KESt-Abzug wird sie nicht angerechnet. Ist dein Konto steuereinfach, gib an, seit wann.",
+      },
+    ]);
+  });
+});
+
+describe("Jahresauswertung: Dividenden und Quellensteuer", () => {
+  const year = (...rows: TrRow[]) => computeYear(parseTradeRepublicCsv(trCsv(...rows)), 2026);
+  const T = "2026-04-15T00:00:00.000000Z";
+
+  test("deutsche Dividende: KZ 863 brutto, Quellensteuer bis 15 % in KZ 998, 12,5 % Rest-KESt", () => {
+    // DBA Österreich–Deutschland Art. 10 Abs. 2 lit. b: höchstens 15 % (RIS, Gesetzesnummer 20002157).
+    // 100 € brutto, 26,38 € einbehalten -> anrechenbar 15 €, KESt 27,50 − 15 = 12,50 €.
+    const r = year(dividend(T, "DE0000000001", "100.00", "-26.38"));
+    expect(r.kz863.toString()).toBe("100");
+    expect(r.kz998.toString()).toBe("15");
+    expect(r.tax275Eur.toString()).toBe("12.5");
+    expect(r.dividends).toEqual([
+      expect.objectContaining({ line: 2, isin: "DE0000000001", country: "DE" }),
+    ]);
+    expect(r.dividends[0]?.creditableEur.toString()).toBe("15");
+    expect(r.dividends[0]?.treatySource).toMatch(/Gesetzesnummer=20002157/);
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("finnische Dividende: DBA-Satz 10 % deckelt die Anrechnung", () => {
+    // DBA Österreich–Finnland Art. 10 Abs. 2: höchstens 10 % (RIS, Gesetzesnummer 20001206).
+    // 200 € brutto, 70 € (35 %) einbehalten -> anrechenbar 20 €, KESt 55 − 20 = 35 €.
+    const r = year(dividend(T, "FI0000000001", "200.00", "-70.00"));
+    expect(r.kz998.toString()).toBe("20");
+    expect(r.tax275Eur.toString()).toBe("35");
+  });
+
+  test("Testfall 3: Kursverlust im selben Jahr senkt die anrechenbare Quellensteuer", () => {
+    // 100 € Dividende (DE), 15 € einbehalten, 60 € Kursverlust -> 40 € steuerpflichtig.
+    // Anrechenbar höchstens 27,5 % von 40 € = 11 € (Annahme laut README), Steuer 0 €.
+    const r = year(
+      trade("BUY", "2026-01-02T10:00:00.000Z", "US0000000001", "1", "160.00"),
+      trade("SELL", "2026-02-02T10:00:00.000Z", "US0000000001", "1", "100.00"),
+      dividend(T, "DE0000000001", "100.00", "-15.00"),
+    );
+    expect(r.kz892.toString()).toBe("60");
+    expect(r.kz863.toString()).toBe("100");
+    expect(r.kz998.toString()).toBe("11");
+    expect(r.tax275Eur.toString()).toBe("0");
+  });
+
+  test("Land ohne hinterlegten DBA-Satz: Dividende zählt, Quellensteuer wird nicht angerechnet und gemeldet", () => {
+    const r = year(dividend(T, "IE0000000009", "100.00", "-25.00"));
+    expect(r.kz863.toString()).toBe("100");
+    expect(r.kz998.toString()).toBe("0");
+    expect(r.tax275Eur.toString()).toBe("27.5");
+    expect(r.dividends[0]?.treatySource).toBeNull();
+    expect(r.notComputed).toEqual([
+      {
+        line: 2,
+        type: "CASH/DIVIDEND",
+        reason:
+          "Quellensteuer 25,00 € auf die Dividende von IE0000000009 wird nicht angerechnet: Der DBA-Satz für IE ist in der App noch nicht hinterlegt. Die Steuer fällt dadurch eher zu hoch aus.",
+      },
+    ]);
+  });
+
+  test("Land ohne hinterlegten DBA-Satz und ohne Quellensteuer: kein Hinweis", () => {
+    const r = year(dividend(T, "GB0000000001", "50.00"));
+    expect(r.kz863.toString()).toBe("50");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("Dividende in Fremdwährung wird bis zur EZB-Umrechnung nicht berechnet", () => {
+    const r = year(dividend(T, "US0000000001", "29.58", "-4.44", { original_amount: "34.51", original_currency: "USD" }));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.kz998.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toBe(
+      "Dividende von US0000000001 in USD: Umrechnung zum EZB-Referenzkurs wird noch nicht unterstützt. Nicht berechnet.",
+    );
+  });
+
+  test("inländische Dividende (ISIN AT) wird nicht berechnet", () => {
+    const r = year(dividend(T, "AT0000000001", "40.00", "-11.00"));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toBe(
+      "Inländische Dividende von AT0000000001: Die App rechnet bisher nur ausländische Kapitaleinkünfte. Nicht berechnet.",
+    );
+  });
+
+  test("Dividende mit Steuergutschrift statt Abzug wird nicht berechnet", () => {
+    const r = year(dividend(T, "DE0000000001", "40.00", "3.00"));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed[0]?.reason).toMatch(/Steuergutschrift/);
+  });
+
+  test("Fondsausschüttung wird nicht berechnet (steuerpflichtiger Anteil laut § 186 InvFG 2011)", () => {
+    const r = year(dividend(T, "LU0000000001", "11.46", "", { type: "DISTRIBUTION", asset_class: "FUND" }));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.notComputed).toEqual([
+      {
+        line: 2,
+        type: "CASH/DISTRIBUTION",
+        reason:
+          "Ausschüttung des Fonds/ETF LU0000000001: Steuerpflichtig ist bei Meldefonds der von der Meldestelle (OeKB) veröffentlichte Anteil, bei Nicht-Meldefonds die ganze Ausschüttung (§ 186 InvFG 2011). Nicht berechnet.",
+      },
+    ]);
+  });
+
+  test("Kapitalausschüttung wird nicht berechnet, spätere Verkäufe derselben Position auch nicht", () => {
+    const r = year(
+      trade("BUY", "2026-01-02T10:00:00.000Z", "NO0000000001", "10", "100.00"),
+      dividend("2026-03-19T00:00:00.000000Z", "NO0000000001", "41.56", "-11.63", { type: "DIVIDEND_EQUIVALENT_PAYMENT" }),
+      trade("SELL", "2026-05-02T10:00:00.000Z", "NO0000000001", "10", "120.00"),
+    );
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.realized).toEqual([]);
+    expect(r.notComputed.map((n) => n.line)).toEqual([3, 4]);
+    expect(r.notComputed[0]?.reason).toMatch(/Einlagenrückzahlung/);
+    expect(r.notComputed[1]?.reason).toMatch(/NO0000000001 ist seit Zeile 3 unvollständig/);
+  });
+
+  test("Dividende aus einem anderen Jahr zählt nicht", () => {
+    const r = year(dividend("2025-04-15T00:00:00.000000Z", "DE0000000001", "100.00", "-26.38"));
+    expect(r.kz863.toString()).toBe("0");
+    expect(r.dividends).toEqual([]);
+  });
+
+  test("Anleihezinsen (Zinsen mit ISIN) gehören nicht in KZ 861 und werden nicht berechnet", () => {
+    const r = year(interest(T, "3.00", { symbol: "XS0000000001" }), interest(T, "2.00"));
+    expect(r.kz861.toString()).toBe("2");
+    expect(r.notComputed[0]?.reason).toBe(
+      "Zinsen aus dem Wertpapier XS0000000001 (KZ 863) werden noch nicht berechnet.",
+    );
+  });
+
+  test("Steuer auf Bankzinsen bei einem nicht steuereinfachen Konto wird gemeldet", () => {
+    const r = year(interest(T, "2.00", { tax: "-0.50" }));
+    expect(r.kz861.toString()).toBe("2");
+    expect(r.notComputed[0]?.reason).toMatch(/0,50 € Steuer einbehalten/);
+  });
+});
+
+describe("Jahresauswertung: Trade Republic steuereinfach (KESt-Abzug durch den Broker)", () => {
+  const SINCE = "2026-05-01";
+  const year = (...rows: TrRow[]) =>
+    computeYear(parseTradeRepublicCsv(trCsv(...rows)), 2026, { taxSimpleSince: SINCE });
+
+  test("Verkauf vor der Umstellung zählt für die E1kv, Verkauf danach gilt als endbesteuert", () => {
+    const r = year(
+      trade("BUY", "2026-01-02T10:00:00.000Z", "US0000000001", "2", "100.00"),
+      trade("SELL", "2026-04-30T10:00:00.000Z", "US0000000001", "1", "70.00"), // +20 vor der Umstellung
+      trade("SELL", "2026-05-01T10:00:00.000Z", "US0000000001", "1", "80.00", { tax: "-8.25" }), // +30 danach
+    );
+    expect(r.kz994.toString()).toBe("20");
+    expect(r.tax275Eur.toString()).toBe("5.5");
+    expect(r.realized.map((x) => x.gainEur.toString())).toEqual(["20"]);
+    expect(r.taxedByBroker).toEqual([
+      expect.objectContaining({ line: 4, kind: "sale", isin: "US0000000001", date: "2026-05-01" }),
+    ]);
+    expect(r.taxedByBroker[0]?.amountEur.toString()).toBe("30");
+    expect(r.taxedByBroker[0]?.withheldEur.toString()).toBe("8.25");
+    expect(r.brokerWithheldEur.toString()).toBe("8.25");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("Dividenden und Zinsen ab der Umstellung gelten als endbesteuert, auch Fonds und Fremdwährung", () => {
+    const r = year(
+      dividend("2026-04-15T00:00:00.000000Z", "DE0000000001", "100.00", "-26.38"),
+      dividend("2026-06-15T00:00:00.000000Z", "US0000000001", "29.58", "-8.13", { original_currency: "USD" }),
+      dividend("2026-06-16T00:00:00.000000Z", "IE0000000001", "42.38", "-11.65", { asset_class: "ETF" }),
+      interest("2026-07-01T00:00:00.000000Z", "4.00", { tax: "-1.10" }),
+    );
+    expect(r.kz863.toString()).toBe("100");
+    expect(r.kz998.toString()).toBe("15");
+    expect(r.kz861.toString()).toBe("0");
+    expect(r.taxedByBroker.map((x) => [x.line, x.kind, x.amountEur.toString(), x.withheldEur.toString()])).toEqual([
+      [3, "dividend", "29.58", "8.13"],
+      [4, "dividend", "42.38", "11.65"],
+      [5, "interest", "4", "1.1"],
+    ]);
+    expect(r.brokerWithheldEur.toString()).toBe("20.88");
+    expect(r.notComputed).toEqual([]);
+  });
+
+  test("Gutschrift von Trade Republic (Verlustausgleich) mindert die einbehaltene Steuer", () => {
+    const r = year(
+      trade("BUY", "2026-05-02T10:00:00.000Z", "US0000000001", "1", "100.00"),
+      trade("SELL", "2026-06-02T10:00:00.000Z", "US0000000001", "1", "90.00", { tax: "2.75" }),
+      interest("2026-07-01T00:00:00.000000Z", "10.00", { tax: "-2.75" }),
+    );
+    expect(r.brokerWithheldEur.toString()).toBe("0");
+    expect(r.unusedLossEur.toString()).toBe("0"); // Verlust gehört nicht in die eigene Rechnung
+  });
+
+  test("ohne Angabe gilt das Konto als nicht steuereinfach", () => {
+    const r = computeYear(parseTradeRepublicCsv(trCsv(interest("2026-07-01T00:00:00.000000Z", "4.00"))), 2026);
+    expect(r.taxSimpleSince).toBeNull();
+    expect(r.kz861.toString()).toBe("4");
+    expect(r.taxedByBroker).toEqual([]);
+  });
+
+  test("ungültiges Datum wird mit deutscher Meldung abgelehnt", () => {
+    const data = parseTradeRepublicCsv(trCsv(interest("2026-07-01T00:00:00.000000Z", "4.00")));
+    expect(() => computeYear(data, 2026, { taxSimpleSince: "1.5.2026" })).toThrow(/steuereinfach seit/);
   });
 });

@@ -1,4 +1,4 @@
-# Übergabe: Stand und Kontext (18.11.2026)
+# Übergabe: Stand und Kontext (20.11.2026)
 
 Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an diesem Repository weiterarbeitet, liest sie zuerst, danach `CLAUDE.md` und `README.md`.
 
@@ -49,7 +49,14 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - Vorzeichen von KZ 892/896/176 in FinanzOnline.
 - Grenze Berechnungstool vs. Steuerberatung; reicht der Kriterien-Check der Rücklage?
 - Kauf und Verkauf derselben ISIN mit identischem Zeitstempel bei bereits vorhandenem Bestand: In welcher Reihenfolge fließen sie in den gleitenden Durchschnittspreis ein? Derzeit Annahme „Kauf zuerst“ (Review 18.11.2026).
-- Falls Trade Republic in Österreich Steuern einbehält (Spalte `tax`, z. B. nach einer Umstellung auf steuereinfach): Wie sind diese Beträge in E1kv und Rücklage zu berücksichtigen? Derzeit nur Hinweis, keine Anrechnung.
+- Falls Trade Republic in Österreich Steuern einbehält (Spalte `tax`, z. B. nach einer Umstellung auf steuereinfach): Wie sind diese Beträge in E1kv und Rücklage zu berücksichtigen? Seit Schritt 1.1: Ab dem vom Nutzer angegebenen Tag „steuereinfach seit“ gelten Erträge als endbesteuert und zählen nicht; davor nur Hinweis, keine Anrechnung.
+- **Produkt (Joshua):** Trade Republic ist in Österreich seit 24.04.2025 steuereinfach (Neukunden sofort, Bestandskunden nach Zustimmung in der App; Quelle: [broker-test.at](https://www.broker-test.at/news/trade-republic-wann-und-wie-werden-bestandskundschaften-steuereinfach/), Pressemitteilung Trade Republic vom 24.04.2025). Joshuas eigenes Konto ist umgestellt. Damit braucht die laufende Rücklage bei Trade Republic nur noch, wer nicht umgestellt hat, oder für die Zeit vor der Umstellung. PRODUKTPLAN und Zielgruppe nennen Trade Republic noch als „nicht steuereinfach“.
+- Endbesteuerte Erträge bei Trade Republic und Verluste bei einem anderen Broker: Wann lohnt die Regelbesteuerungs- bzw. Verlustausgleichsoption in der Veranlagung, und wie stellt die App das dar, ohne zu beraten? Derzeit zählt die App endbesteuerte Erträge gar nicht.
+- Bestandskunden: Kennt Trade Republic nach der Umstellung die Anschaffungskosten von Positionen, die vorher gekauft wurden? Laut broker-test.at nicht immer; zu viel einbehaltene KESt wäre dann über die Veranlagung zurückzuholen. Die App zeigt beim endbesteuerten Verkauf ihren eigenen Gewinn neben der einbehaltenen Steuer, prüft aber nicht, ob beides zusammenpasst.
+- Dividenden-Storno über den Jahreswechsel (Storno 2026 einer Dividende von 2025, danach Neubuchung): In welchem Jahr zählt die Neubuchung? Derzeit im Jahr ihres Buchungsdatums, mit Hinweis.
+- „Capital Distribution“ (`DIVIDEND_EQUIVALENT_PAYMENT`): Dividende oder Einlagenrückzahlung (mindert die Anschaffungskosten)? Derzeit nicht berechnet.
+- Quellensteuer aus Irland (DBA Art. 8, 15 % nur mit irischer Steuergutschrift), Japan (DBA BGBl. III Nr. 167/2018) und dem Vereinigten Königreich: DBA-Satz noch nicht hinterlegt, derzeit keine Anrechnung. Die MLI-synthetisierten Fassungen der Abkommen sind nicht geprüft.
+- Quellenstaat bei Hinterlegungsscheinen (ADR) und Gesellschaften mit Sitz außerhalb des ISIN-Landes: Derzeit gilt das Land der ISIN.
 
 ## Stand des Codes
 
@@ -57,9 +64,11 @@ Diese Datei fasst alles zusammen, was im Planungs-Chat entschieden wurde. Wer an
 - Trade-Republic-CSV-Import (`src/import/tradeRepublic.ts`), Jahresauswertung (`src/yearReport.ts`), Textbericht (`npm run report`), Web-App (`npm run build:web`).
 - Getestet mit Joshuas echtem Export (liegt **nur** lokal unter `data/private/`, nie committen). Ergebnis 2026: KZ 892 3,52 €, KZ 995 1,99 €, KZ 896 0,08 €, KZ 174 0,19 €, KZ 861 0,01 €, Steuer 0 €, 1,42 € Verlust übrig. Handrechnung stimmt.
 - Der echte Export enthält nur: TRADING BUY/SELL (STOCK, DERIVATIVE, CRYPTO), DELIVERY FREE_DELIVERY (Krypto ins Wallet), CASH INTEREST_PAYMENT sowie Karten-/Überweisungsbuchungen. **Kein Dividenden-Beispiel**: Buchungstyp für Dividenden bei Trade Republic ist noch unbekannt und wird bewusst als „Unbekannter Buchungstyp“ gemeldet.
-- Offen: PR #1 (`trade-republic-import`) ist noch nicht gemergt.
-- Review und Härtung (Branch `review-haertung`, PR gegen `trade-republic-import`): BOM, falsche/leere Datei, ungültige Zahlen und Daten, gleicher Zeitstempel, fehlender Bestand („nicht berechnet“ statt Abbruch), Übertrag größer als Bestand, Hinweise für Fonds/ETF und Spalte `tax`; Web-App zeigt Fehler klar und lässt keine alten Zahlen stehen. 77 Tests grün.
-- Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011), keine Dividenden aus dem Trade-Republic-Export. Hinweise unter „Nicht berechnet“ erscheinen in jedem Jahr, nicht nur im betroffenen.
+- PR #1 (`trade-republic-import`) und PR #2 (`review-haertung`) sind am 20.11.2026 gemergt.
+- Review und Härtung (PR #2): BOM, falsche/leere Datei, ungültige Zahlen und Daten, gleicher Zeitstempel, fehlender Bestand („nicht berechnet“ statt Abbruch), Übertrag größer als Bestand, Hinweise für Fonds/ETF und Spalte `tax`; Web-App zeigt Fehler klar und lässt keine alten Zahlen stehen. 77 Tests grün.
+- **Schritt 1.1 (Branch `schritt-1.1-tr-dividenden`):** Dividenden aus dem Trade-Republic-Export (`CASH/DIVIDEND`, belegt über den Importer von Portfolio Performance) → KZ 863, Quellensteuer → KZ 998, gedeckelt mit dem DBA-Satz je Land (`src/treaty.ts`, 14 Länder aus dem RIS) und gekürzt nach Verlustausgleich. Stornos werden verrechnet oder gemeldet. Fondsausschüttungen, Kapitalausschüttungen, Dividenden in Fremdwährung, inländische Dividenden und Anleihezinsen werden „nicht berechnet“ gemeldet. Neu: Einstellung „steuereinfach seit“ (Web-App, `--steuereinfach-seit` im Bericht): Erträge ab dann gelten als endbesteuert und erscheinen getrennt mit der einbehaltenen Steuer. Der Hinweis zur Spalte `tax` kommt jetzt aus der Jahresauswertung und nur im betroffenen Jahr. 116 Tests grün.
+- Das Ergebnis 2026 aus Joshuas Export (oben) ist ohne „steuereinfach seit“ gerechnet. Da sein Konto umgestellt ist, muss er es mit seinem Umstellungsdatum neu rechnen.
+- Bekannte Lücken im Rechenkern (siehe README „Annahmen“): keine ausschüttungsgleichen Erträge / Nicht-Meldefonds, keine Fondsausschüttungen, kein Altbestand (Krypto vor 1.3.2021, Wertpapiere vor 1.1.2011), keine Fremdwährung (Schritt 1.2). Import-Hinweise unter „Nicht berechnet“ erscheinen weiterhin in jedem Jahr, nicht nur im betroffenen.
 
 ## Roadmap (Kurzform)
 

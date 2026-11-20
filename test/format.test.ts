@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { formatEur, formatReport } from "../src/format.js";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
 import { computeYear } from "../src/yearReport.js";
+import { dividend, interest, trCsv } from "./helpers/trCsv.js";
 
 describe("Ausgabe", () => {
   test("Euro-Beträge auf Cent gerundet, deutsches Format", () => {
@@ -17,5 +18,21 @@ describe("Ausgabe", () => {
     expect(text).toContain("KZ 896  Verluste Derivate                    3,00 €");
     expect(text).toContain("Steuer 27,5 %                                0,00 €");
     expect(text).toContain("Zeile 16: CASH/SOMETHING_NEW – Unbekannter Buchungstyp");
+  });
+
+  test("Bericht zeigt Dividenden mit anrechenbarer Quellensteuer und Endbesteuertes getrennt", () => {
+    const csv = trCsv(
+      dividend("2026-04-15T00:00:00.000000Z", "DE0000000001", "100.00", "-26.38", { name: "Beispiel Dividende AG" }),
+      interest("2026-07-01T00:00:00.000000Z", "4.00", { tax: "-1.10" }),
+    );
+    const text = formatReport(computeYear(parseTradeRepublicCsv(csv), 2026, { taxSimpleSince: "2026-05-01" }));
+    expect(text).toContain("Trade Republic zieht die KESt seit 2026-05-01 selbst ab (steuereinfach).");
+    expect(text).toContain("Dividenden (brutto · einbehalten · anrechenbar)");
+    expect(text).toMatch(/2026-04-15 {2}Beispiel Dividende AG \(DE\) +100,00 € · 26,38 € · 15,00 €/);
+    expect(text).toContain("Von Trade Republic bereits versteuert (zählt nicht für E1kv und Rücklage)");
+    expect(text).toMatch(/2026-07-01 {2}Zinsen +4,00 € · 1,10 € einbehalten/);
+    expect(text).toMatch(/Einbehalten von Trade Republic +1,10 €/);
+    // Kennzahlen nur aus der Zeit vor der Umstellung
+    expect(text).toMatch(/KZ 861 {2}Zinsen aus Geldeinlagen +0,00 €/);
   });
 });
