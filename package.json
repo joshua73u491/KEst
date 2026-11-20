@@ -9,7 +9,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "report": "tsx src/cli/report.ts",
-    "build:web": "node scripts/build-web.mjs"
+    "build:web": "tsx scripts/build-web.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
