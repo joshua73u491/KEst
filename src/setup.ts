@@ -9,9 +9,9 @@ import { parseExport, type Broker } from "./import/readAny.js";
  * `src/web/setupWizard.ts`.
  */
 
-export type BrokerId = "tr" | "ibkr";
+export type BrokerId = "tr" | "ibkr" | "degiro";
 
-export const BROKER_NAME: Record<BrokerId, Broker> = { tr: "Trade Republic", ibkr: "IBKR" };
+export const BROKER_NAME: Record<BrokerId, Broker> = { tr: "Trade Republic", ibkr: "IBKR", degiro: "DEGIRO" };
 
 export interface GuideStep {
   text: string;
@@ -75,6 +75,30 @@ export const GUIDES: Record<BrokerId, ExportGuide> = {
     ],
     accept: ".xml,text/xml,application/xml",
     sources: [{ label: "IBKR: Create an Activity Flex Query", url: "https://www.ibkrguides.com/orgportal/performanceandstatements/activityflex.htm" }],
+  },
+  degiro: {
+    title: "Transaktionen und Kontoübersicht von DEGIRO",
+    steps: [
+      { text: "Melde dich am Computer im Web-Trader von DEGIRO an. In der App gibt es den CSV-Export nicht.", shot: "Anmeldung im Web-Trader" },
+      {
+        text: "Öffne „Posteingang“ bzw. „Aktivität“ → „Transaktionen“, stelle das Startdatum auf den Tag der Kontoeröffnung und wähle „Exportieren“ → CSV.",
+        shot: "Seite Transaktionen mit Zeitraum und Export-Knopf",
+      },
+      { text: "Öffne dort „Kontoübersicht“, wähle denselben Zeitraum und exportiere sie ebenfalls als CSV. Sie enthält Dividenden und Zinsen.", shot: "Seite Kontoübersicht mit Export-Knopf" },
+      { text: "Zieh beide Dateien hier hinein. Lässt DEGIRO nur einen kürzeren Zeitraum zu, exportiere mehrere Zeiträume; die App führt sie zusammen.", shot: "Beide CSV-Dateien im Download-Ordner" },
+    ],
+    checklist: [
+      "Zwei Dateien: „Transaktionen“ (Käufe und Verkäufe) und „Kontoübersicht“ (Dividenden, Zinsen)",
+      "Format CSV",
+      "Zeitraum ab Kontoeröffnung (notfalls mehrere Dateien)",
+      "Dateien unverändert lassen, nicht in Excel öffnen und speichern",
+    ],
+    accept: ".csv,text/csv",
+    sources: [
+      { label: "Snowball Analytics: DEGIRO-Import (Menüweg)", url: "https://help.snowball-analytics.com/import-degiro/" },
+      { label: "libdegiro: Format der Kontoübersicht", url: "https://github.com/nyg/libdegiro" },
+      { label: "degiro-portfolio: Format der Transaktionen", url: "https://github.com/wirrike/degiro-portfolio" },
+    ],
   },
 };
 

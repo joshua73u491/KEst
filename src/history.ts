@@ -1,4 +1,5 @@
 import type { FilePeriod } from "./check.js";
+import { DEGIRO_DEPOT, processDegiroFiles, readDegiroRows, type DegiroFile } from "./import/degiro.js";
 import { processIbkrStatements, readIbkrFlexStatements, type FlexStatementData } from "./import/ibkrFlex.js";
 import type { ImportResult } from "./import/model.js";
 import { parseExport, type Broker } from "./import/readAny.js";
@@ -134,6 +135,28 @@ export function combine(history: History): Combined {
   }
   if (merged.length > 0) parts.push(processIbkrStatements(merged));
 
+  // DEGIRO: Zeilen ohne eindeutige ID; eine Zeile, die in mehreren Dateien gleich vorkommt, zählt nur so oft wie in der
+  // Datei, in der sie am häufigsten steht (zwei gleiche Teilausführungen in einer Datei bleiben beide erhalten)
+  const degiro: DegiroFile[] = [];
+  const kept = new Map<string, number>();
+  for (const f of history.files.filter((x) => x.broker === "DEGIRO")) {
+    const file = readDegiroRows(f.text, f.name);
+    const local = new Map<string, number>();
+    const rows = file.rows.filter((r) => {
+      const key = `${file.kind}|${JSON.stringify(r.cells)}`;
+      const n = (local.get(key) ?? 0) + 1;
+      local.set(key, n);
+      if (n <= (kept.get(key) ?? 0)) {
+        duplicates++;
+        return false;
+      }
+      kept.set(key, n);
+      return true;
+    });
+    degiro.push({ kind: file.kind, rows });
+  }
+  if (degiro.length > 0) parts.push(processDegiroFiles(degiro));
+
   const data = emptyResult();
   for (const p of parts) {
     data.trades.push(...p.trades);
@@ -159,6 +182,13 @@ export function filePeriods(history: History): FilePeriod[] {
         .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
         .sort();
       if (dates.length > 0) periods.push({ depot: "TR", file: f.name, from: dates[0]!, to: dates[dates.length - 1]!, exact: false });
+    } else if (f.broker === "DEGIRO") {
+      const dates = readDegiroRows(f.text, f.name)
+        .rows.map((r) => /^(\d{2})-(\d{2})-(\d{4})$/.exec(r.cells[0] ?? ""))
+        .filter((m): m is RegExpExecArray => m !== null)
+        .map((m) => `${m[3]}-${m[2]}-${m[1]}`)
+        .sort();
+      if (dates.length > 0) periods.push({ depot: DEGIRO_DEPOT, file: f.name, from: dates[0]!, to: dates[dates.length - 1]!, exact: false });
     } else {
       for (const st of readIbkrFlexStatements(f.text, f.name)) {
         if (st.fromDate && st.toDate) periods.push({ depot: `IBKR ${st.accountId}`.trim(), file: f.name, from: st.fromDate, to: st.toDate, exact: true });

@@ -29,6 +29,11 @@ export function parseCsvTable(
   };
 }
 
+/** Alle Zeilen als Zellenlisten, ohne Zuordnung zu Spaltennamen (für Kopfzeilen mit leeren oder doppelten Namen). */
+export function parseCsvRows(text: string): string[][] {
+  return parseRows(text.startsWith("﻿") ? text.slice(1) : text);
+}
+
 function parseRows(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
