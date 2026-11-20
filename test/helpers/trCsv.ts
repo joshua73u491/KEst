@@ -41,3 +41,43 @@ export function trade(
     ...extra,
   };
 }
+
+/**
+ * Eine Ausschüttung wie im echten Export (Format laut Portfolio-Performance-Importer, siehe
+ * src/import/tradeRepublic.ts): `amount` brutto in EUR, `tax` negativ = einbehaltene Steuer.
+ */
+export function dividend(at: string, symbol: string, amount: string, tax = "", extra: TrRow = {}): TrRow {
+  return {
+    datetime: at,
+    date: at.slice(0, 10),
+    account_type: "DEFAULT",
+    category: "CASH",
+    type: "DIVIDEND",
+    asset_class: "STOCK",
+    name: `Erfunden ${symbol}`,
+    symbol,
+    shares: "10.0000000000",
+    amount,
+    tax,
+    currency: "EUR",
+    description: `Cash Dividend for ISIN ${symbol}`,
+    transaction_id: `DIV-${at}-${symbol}-${amount}`,
+    ...extra,
+  };
+}
+
+/** Zinsen auf dem Verrechnungskonto. */
+export function interest(at: string, amount: string, extra: TrRow = {}): TrRow {
+  return {
+    datetime: at,
+    date: at.slice(0, 10),
+    account_type: "DEFAULT",
+    category: "CASH",
+    type: "INTEREST_PAYMENT",
+    amount,
+    currency: "EUR",
+    description: "Interest payment",
+    transaction_id: `INT-${at}`,
+    ...extra,
+  };
+}

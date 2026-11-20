@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { parseTradeRepublicCsv } from "../src/import/tradeRepublic.js";
-import { trade, trCsv } from "./helpers/trCsv.js";
+import { dividend, interest, trade, trCsv } from "./helpers/trCsv.js";
 
 const sample = readFileSync(new URL("./fixtures/tr-beispiel.csv", import.meta.url), "utf8");
 
@@ -38,7 +38,7 @@ describe("Trade-Republic-Transaktionsexport (CSV seit April 2026)", () => {
   });
 
   test("Zinsen auf dem Verrechnungskonto werden erfasst", () => {
-    expect(result.interest).toEqual([{ date: "2026-08-01", amountEur: "2" }]);
+    expect(result.interest).toEqual([{ line: 15, date: "2026-08-01", amountEur: "2", withheldEur: "0", isin: "" }]);
   });
 
   test("Kartenzahlungen und Einzahlungen werden ignoriert, Unbekanntes wird gemeldet", () => {
@@ -128,12 +128,17 @@ describe("Trade-Republic-Import: Randfälle", () => {
     expect(r.trades[0]).toMatchObject({ quantity: "1e-10", amountEur: "0.01", kind: "crypto" });
   });
 
-  test("Betrag in der Spalte tax wird nicht still übergangen", () => {
-    const r = parseTradeRepublicCsv(trCsv(trade("SELL", at, "US0000000009", "1", "10.00", { tax: "-2.75" })));
-    expect(r.trades).toHaveLength(1);
-    expect(r.unsupported).toEqual([
-      { line: 2, type: "TRADING/SELL", reason: "Steuerbetrag -2.75 in Spalte tax wird noch nicht angerechnet" },
-    ]);
+  test("Betrag in der Spalte tax wird als einbehaltene Steuer mitgeführt (negativ = einbehalten)", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        trade("SELL", at, "US0000000009", "1", "10.00", { tax: "-2.75" }),
+        trade("SELL", "2026-03-03T10:00:00.000Z", "US0000000008", "1", "10.00", { tax: "1.10" }),
+        trade("BUY", "2026-03-04T10:00:00.000Z", "US0000000007", "1", "10.00"),
+      ),
+    );
+    expect(r.trades.map((t) => t.withheldEur)).toEqual(["2.75", "-1.1", "0"]);
+    // Ob das zum Konto passt, entscheidet die Jahresauswertung (steuereinfach oder nicht).
+    expect(r.unsupported).toEqual([]);
   });
 
   test("Umrechnung durch Trade Republic statt EZB-Referenzkurs wird gemeldet", () => {
@@ -156,6 +161,141 @@ describe("Trade-Republic-Import: Randfälle", () => {
     expect(r.unsupported.map((u) => [u.line, u.reason])).toEqual([
       [2, "Fonds/ETF IE0000000001: ausschüttungsgleiche Erträge (KZ 937) und Meldefonds-Status werden noch nicht berechnet"],
       [4, "Fonds/ETF IE0000000002: ausschüttungsgleiche Erträge (KZ 937) und Meldefonds-Status werden noch nicht berechnet"],
+    ]);
+  });
+});
+
+describe("Trade-Republic-Import: Ausschüttungen", () => {
+  const at = "2026-04-15T00:00:00.000000Z";
+
+  test("Dividende einer Aktie: Bruttobetrag aus amount, einbehaltene Steuer aus tax", () => {
+    const r = parseTradeRepublicCsv(trCsv(dividend(at, "DE0000000001", "100.000000", "-26.38")));
+    expect(r.dividends).toEqual([
+      {
+        line: 2,
+        isin: "DE0000000001",
+        depot: "TR",
+        date: "2026-04-15",
+        datetime: at,
+        name: "Erfunden DE0000000001",
+        kind: "stock",
+        grossEur: "100",
+        withheldEur: "26.38",
+        originalCurrency: "",
+      },
+    ]);
+    expect(r.unsupported).toEqual([]);
+  });
+
+  test("Dividende ohne Steuerabzug: einbehaltene Steuer 0", () => {
+    const r = parseTradeRepublicCsv(trCsv(dividend(at, "DE0000000001", "12.160000")));
+    expect(r.dividends[0]).toMatchObject({ grossEur: "12.16", withheldEur: "0" });
+  });
+
+  test("Dividende in Fremdwährung: Originalwährung wird mitgeführt, nicht still umgerechnet", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(dividend(at, "US0000000001", "29.580000", "-4.44", { original_amount: "34.51", original_currency: "USD", fx_rate: "0.857265" })),
+    );
+    expect(r.dividends[0]).toMatchObject({ grossEur: "29.58", withheldEur: "4.44", originalCurrency: "USD" });
+  });
+
+  test("Ausschüttungen von Fonds und ETFs werden als Fondsausschüttung erkannt", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        dividend(at, "LU0000000001", "11.46", "-2.25", { type: "DISTRIBUTION", asset_class: "FUND" }),
+        dividend(at, "IE0000000001", "42.38", "", { asset_class: "FUND" }),
+        dividend(at, "IE0000000002", "6.61", "", { asset_class: "ETF" }),
+      ),
+    );
+    expect(r.dividends.map((d) => [d.isin, d.kind])).toEqual([
+      ["LU0000000001", "fund"],
+      ["IE0000000001", "fund"],
+      ["IE0000000002", "fund"],
+    ]);
+  });
+
+  test("DIVIDEND_EQUIVALENT_PAYMENT (Capital Distribution) wird als Kapitalausschüttung erkannt", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(dividend(at, "NO0000000001", "41.56", "-11.63", { type: "DIVIDEND_EQUIVALENT_PAYMENT", description: "Capital Distribution for ISIN NO0000000001" })),
+    );
+    expect(r.dividends[0]).toMatchObject({ isin: "NO0000000001", kind: "capitalDistribution" });
+  });
+
+  test("Storno, das eine Ausschüttung genau umkehrt, hebt beide auf; die Neubuchung zählt", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        dividend("2026-02-17T00:00:00.000000Z", "US0000000001", "29.580000", "-4.44"),
+        dividend("2026-03-27T12:17:08.000000Z", "US0000000001", "-29.580000", "4.44"),
+        dividend("2026-03-27T12:44:58.000000Z", "US0000000001", "29.580000", "-4.50"),
+      ),
+    );
+    expect(r.dividends.map((d) => [d.line, d.grossEur, d.withheldEur])).toEqual([[4, "29.58", "4.5"]]);
+    expect(r.unsupported).toEqual([]);
+  });
+
+  test("Storno ohne passende ursprüngliche Buchung wird gemeldet statt verrechnet", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        dividend("2026-02-17T00:00:00.000000Z", "US0000000001", "32.27", ""),
+        dividend("2026-03-27T12:17:14.000000Z", "US0000000001", "-32.27", "8.25"),
+      ),
+    );
+    expect(r.dividends.map((d) => d.line)).toEqual([2]);
+    expect(r.unsupported).toEqual([
+      {
+        line: 3,
+        type: "CASH/DIVIDEND",
+        reason: "Storno einer Ausschüttung von US0000000001 (-32,27 €) ohne passende ursprüngliche Buchung. Nicht berechnet, bitte prüfen.",
+      },
+    ]);
+  });
+
+  test("Storno einer Ausschüttung aus dem Vorjahr wird verrechnet, aber gemeldet", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        dividend("2025-07-17T09:43:05.000000Z", "US0000000001", "29.58", "-4.44"),
+        dividend("2026-03-27T12:17:08.000000Z", "US0000000001", "-29.58", "4.44"),
+      ),
+    );
+    expect(r.dividends).toEqual([]);
+    expect(r.unsupported).toEqual([
+      {
+        line: 3,
+        type: "CASH/DIVIDEND",
+        reason:
+          "Ausschüttung von US0000000001 vom 2025-07-17 wurde am 2026-03-27 storniert. Eine Neubuchung zählt im Jahr ihres Buchungsdatums; bitte prüfen, welchem Jahr sie zuzurechnen ist.",
+      },
+    ]);
+  });
+
+  test("Ausschüttung für eine nicht zugeordnete Anlageklasse wird gemeldet", () => {
+    const r = parseTradeRepublicCsv(trCsv(dividend(at, "XS0000000001", "5.00", "", { asset_class: "BOND" })));
+    expect(r.dividends).toEqual([]);
+    expect(r.unsupported[0]?.reason).toBe("Ausschüttung (DIVIDEND) für Anlageklasse BOND wird noch nicht zugeordnet");
+  });
+
+  test("Ausschüttung mit Betrag 0 oder ohne ISIN wird gemeldet statt abzustürzen", () => {
+    const r = parseTradeRepublicCsv(trCsv(dividend(at, "DE0000000001", "0.00"), dividend(at, "", "5.00")));
+    expect(r.dividends).toEqual([]);
+    expect(r.unsupported.map((u) => u.reason)).toEqual(["Betrag 0", "ISIN fehlt"]);
+  });
+
+  test("Ausschüttung auf einem Konto in anderer Währung als EUR wird gemeldet", () => {
+    const r = parseTradeRepublicCsv(trCsv(dividend(at, "DE0000000001", "5.00", "", { currency: "USD" })));
+    expect(r.dividends).toEqual([]);
+    expect(r.unsupported[0]?.reason).toMatch(/Währung USD/);
+  });
+
+  test("Zinsen: einbehaltene Steuer und Wertpapier (Anleihezinsen) werden mitgeführt", () => {
+    const r = parseTradeRepublicCsv(
+      trCsv(
+        interest(at, "2.00", { tax: "-0.50" }),
+        interest("2026-04-16T00:00:00.000000Z", "3.00", { symbol: "XS0000000001", name: "Erfundene Anleihe" }),
+      ),
+    );
+    expect(r.interest).toEqual([
+      { line: 2, date: "2026-04-15", amountEur: "2", withheldEur: "0.5", isin: "" },
+      { line: 3, date: "2026-04-16", amountEur: "3", withheldEur: "0", isin: "XS0000000001" },
     ]);
   });
 });

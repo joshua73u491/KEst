@@ -12,19 +12,23 @@ interface State {
   isSample: boolean;
   year: number;
   bufferPct: number;
+  /** JJJJ-MM-TT, ab dem Trade Republic die KESt abzieht; leer = nicht steuereinfach */
+  taxSimpleSince: string;
   error: string;
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c] ?? c);
 const KIND_LABEL = { security: "Wertpapier", securitizedDerivative: "Derivat", crypto: "Krypto" } as const;
+const BROKER_KIND = { sale: "Verkauf", dividend: "Ausschüttung", interest: "Zinsen" } as const;
 
-const state: State = { data: null, source: "", isSample: true, year: 2026, bufferPct: 10, error: "" };
+const state: State = { data: null, source: "", isSample: true, year: 2026, bufferPct: 10, taxSimpleSince: "", error: "" };
 
 function yearsOf(data: ImportResult): number[] {
   const ys = new Set<number>();
   for (const t of data.trades) if (t.side === "sell") ys.add(Number(t.date.slice(0, 4)));
   for (const i of data.interest) ys.add(Number(i.date.slice(0, 4)));
+  for (const d of data.dividends) ys.add(Number(d.date.slice(0, 4)));
   ys.delete(NaN);
   if (ys.size === 0) ys.add(new Date().getFullYear());
   return [...ys].sort((a, b) => b - a);
@@ -68,6 +72,8 @@ function renderEmpty() {
   $("open").innerHTML = `<tr><td colspan="4" class="empty">Keine Daten.</td></tr>`;
   $("todo").hidden = true;
   $("todoList").innerHTML = "";
+  $("divBlock").hidden = true;
+  $("brokerBlock").hidden = true;
   $("copy").onclick = null;
 }
 
@@ -96,7 +102,7 @@ function render() {
 
   let report: YearReport;
   try {
-    report = computeYear(data, state.year);
+    report = computeYear(data, state.year, state.taxSimpleSince ? { taxSimpleSince: state.taxSimpleSince } : {});
   } catch (e) {
     fail(`Berechnung nicht möglich: ${e instanceof Error ? e.message : String(e)}`);
     return;
@@ -124,6 +130,9 @@ function render() {
         ? `Keine Steuer: ${formatEur(report.unusedLossEur)} Verlust bleibt übrig. Er verfällt am Jahresende.`
         : "Noch keine steuerpflichtigen Erträge in diesem Jahr."
       : `${formatEur(tax)} Steuer plus ${state.bufferPct} % Sicherheitspuffer.`) +
+    (report.taxSimpleSince
+      ? ` Erträge ab ${report.taxSimpleSince} hat Trade Republic selbst versteuert; sie zählen hier nicht.`
+      : "") +
     (open > 0
       ? ` Achtung: ${open} ${open === 1 ? "Hinweis" : "Hinweise"} unten unter „Nicht berechnet“, das Ergebnis kann unvollständig sein.`
       : "");
@@ -134,6 +143,7 @@ function render() {
     ["Steuer 25 % auf Zinsen", report.tax25Eur],
     ["Nicht ausgeglichener Verlust", report.unusedLossEur],
     ["Ordergebühren, nicht abziehbar", report.feesEur],
+    ...(report.taxSimpleSince ? [["Von Trade Republic einbehalten", report.brokerWithheldEur] as [string, Dec]] : []),
   ];
   $("figs").innerHTML = figs.map(([l, v]) => `<div><dt>${l}</dt><dd>${formatEur(v)}</dd></div>`).join("");
 
@@ -154,6 +164,36 @@ function render() {
   $("kz").innerHTML = kzRows(report)
     .map(([kz, l, v]) => `<tr class="${v.isZero() ? "zero" : ""}"><td>KZ ${kz}</td><td>${l}</td><td class="num">${formatEur(v)}</td></tr>`)
     .join("");
+  $("kzSub").textContent = report.taxSimpleSince
+    ? `Ausländische Kapitaleinkünfte vor dem ${report.taxSimpleSince}, Verluste als positiver Betrag.`
+    : "Ausländische Kapitaleinkünfte, Verluste als positiver Betrag.";
+
+  $("divBlock").hidden = report.dividends.length === 0;
+  $("div").innerHTML = report.dividends
+    .map(
+      (d) =>
+        `<tr><td>${esc(d.date)}</td><td>${esc(d.name || d.isin)} <small>(${esc(d.country)}, ${
+          d.treatySource
+            ? `<a href="${esc(d.treatySource)}" target="_blank" rel="noopener">DBA ${d.treatyRate.times(100).toString()} %</a>`
+            : "DBA-Satz nicht hinterlegt"
+        })</small></td>` +
+        `<td class="num">${formatEur(d.grossEur)}</td><td class="num">${formatEur(d.withheldEur)}</td><td class="num">${formatEur(d.creditableEur)}</td></tr>`,
+    )
+    .join("");
+
+  $("brokerBlock").hidden = report.taxedByBroker.length === 0;
+  $("brokerSub").textContent = report.taxSimpleSince
+    ? `Seit ${report.taxSimpleSince} zieht Trade Republic die KESt selbst ab. Diese Erträge sind endbesteuert und zählen nicht für E1kv und Rücklage.`
+    : "";
+  $("broker").innerHTML =
+    report.taxedByBroker
+      .map(
+        (x) =>
+          `<tr><td>${esc(x.date)}</td><td>${BROKER_KIND[x.kind]}${x.name || x.isin ? ` ${esc(x.name || x.isin)}` : ""}</td>` +
+          `<td class="num">${formatEur(x.amountEur)}</td><td class="num">${formatEur(x.withheldEur)}</td></tr>`,
+      )
+      .join("") +
+    `<tr><td></td><td><b>Summe einbehalten</b></td><td></td><td class="num"><b>${formatEur(report.brokerWithheldEur)}</b></td></tr>`;
 
   $("open").innerHTML = report.openPositions.length
     ? report.openPositions
@@ -224,6 +264,10 @@ function readFile(file: File) {
   });
   $<HTMLInputElement>("buffer").addEventListener("input", (e) => {
     state.bufferPct = Number((e.target as HTMLInputElement).value);
+    render();
+  });
+  $<HTMLInputElement>("since").addEventListener("change", (e) => {
+    state.taxSimpleSince = (e.target as HTMLInputElement).value;
     render();
   });
   $("sample").addEventListener("click", () => load(sampleCsv, "Beispieldaten", true));

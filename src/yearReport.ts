@@ -1,9 +1,19 @@
-import { computeBasket275 } from "./basket275.js";
+import { computeBasket275, type Dividend } from "./basket275.js";
 import { InsufficientPositionError, Positions, type Position, type Trade } from "./costBasis.js";
 import { dec, D, ZERO, type Dec } from "./decimal.js";
+import { formatEur } from "./format.js";
 import type { AssetKind, ImportResult, Unsupported } from "./import/tradeRepublic.js";
+import { countryOfIsin, dividendTreatyRate } from "./treaty.js";
 
 export const BANK_INTEREST_RATE = dec("0.25");
+
+export interface YearOptions {
+  /**
+   * Tag (JJJJ-MM-TT), ab dem Trade Republic für dieses Konto die KESt selbst abzieht (steuereinfach).
+   * Erträge ab diesem Tag gelten als endbesteuert: Sie zählen nicht für die E1kv und nicht für die Rücklage.
+   */
+  taxSimpleSince?: string;
+}
 
 export interface RealizedLine {
   isin: string;
@@ -13,8 +23,42 @@ export interface RealizedLine {
   gainEur: Dec;
 }
 
+export interface DividendLine {
+  line: number;
+  isin: string;
+  name: string;
+  date: string;
+  /** Quellenstaat laut ISIN */
+  country: string;
+  grossEur: Dec;
+  /** tatsächlich einbehaltene Quellensteuer */
+  withheldEur: Dec;
+  /** DBA-Höchstsatz, 0 wenn nicht hinterlegt */
+  treatyRate: Dec;
+  /** Link auf den DBA-Text im RIS, `null` wenn der Satz nicht hinterlegt ist */
+  treatySource: string | null;
+  /** anrechenbar vor dem Verlustausgleich: einbehalten, höchstens DBA-Satz */
+  creditableEur: Dec;
+}
+
+/** Ertrag, für den Trade Republic die KESt bereits abgezogen hat (steuereinfach). */
+export interface BrokerTaxedLine {
+  line: number;
+  date: string;
+  kind: "sale" | "dividend" | "interest";
+  /** leer bei Zinsen auf dem Verrechnungskonto */
+  isin: string;
+  name: string;
+  /** Gewinn laut App (Verkauf) bzw. Bruttobetrag (Ausschüttung, Zinsen) */
+  amountEur: Dec;
+  /** von Trade Republic einbehalten laut Spalte tax (negativ = gutgeschrieben) */
+  withheldEur: Dec;
+}
+
 export interface YearReport {
   year: number;
+  /** Tag, ab dem Trade Republic die KESt abzieht, oder `null` (nicht steuereinfach) */
+  taxSimpleSince: string | null;
   kz994: Dec;
   kz892: Dec;
   kz995: Dec;
@@ -32,17 +76,32 @@ export interface YearReport {
   /** gezahlte Ordergebühren im Jahr (im 27,5 %-Topf nicht abziehbar) */
   feesEur: Dec;
   realized: RealizedLine[];
+  dividends: DividendLine[];
+  /** endbesteuerte Erträge ab `taxSimpleSince` */
+  taxedByBroker: BrokerTaxedLine[];
+  /** Summe der von Trade Republic einbehaltenen Steuer auf `taxedByBroker` */
+  brokerWithheldEur: Dec;
   openPositions: Array<Position & { isin: string; depot: string }>;
   notComputed: Unsupported[];
 }
 
+const withheldNote = (withheld: Dec) =>
+  `Trade Republic hat ${formatEur(withheld)} Steuer einbehalten (Spalte tax). Bei einem Konto ohne KESt-Abzug wird sie nicht angerechnet. Ist dein Konto steuereinfach, gib an, seit wann.`;
+
 /**
  * Wertet alle Buchungen aus: Bestände über die gesamte Historie, Gewinne und Steuer nur für `year`.
  */
-export function computeYear(data: ImportResult, year: number): YearReport {
+export function computeYear(data: ImportResult, year: number, options: YearOptions = {}): YearReport {
+  const since = options.taxSimpleSince ?? null;
+  if (since !== null && !/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    throw new Error(`Das Datum für „steuereinfach seit“ ist ungültig: „${since}“. Erwartet wird JJJJ-MM-TT.`);
+  }
+  /** Ab der Umstellung zieht Trade Republic die KESt selbst ab: Erträge sind endbesteuert. */
+  const taxedByTr = (date: string) => since !== null && date >= since;
   const inYear = (date: string) => date.startsWith(`${year}-`);
   const positions = new Positions();
   const realized: RealizedLine[] = [];
+  const taxedByBroker: BrokerTaxedLine[] = [];
   let feesEur = ZERO;
 
   const notComputed: Unsupported[] = [...data.unsupported];
@@ -55,13 +114,13 @@ export function computeYear(data: ImportResult, year: number): YearReport {
    */
   const applyChecked = (trade: Trade, line: number, type: string) => {
     const key = `${trade.depot}|${trade.isin}`;
-    const since = broken.get(key);
-    if (since !== undefined) {
+    const brokenSince = broken.get(key);
+    if (brokenSince !== undefined) {
       if (trade.side !== "buy") {
         notComputed.push({
           line,
           type,
-          reason: `Bestand von ${trade.isin} ist seit Zeile ${since} unvollständig; ${trade.side === "sell" ? "Gewinn" : "Übertrag"} nicht berechnet`,
+          reason: `Bestand von ${trade.isin} ist seit Zeile ${brokenSince} unvollständig; ${trade.side === "sell" ? "Gewinn" : "Übertrag"} nicht berechnet`,
         });
       }
       return null;
@@ -91,9 +150,19 @@ export function computeYear(data: ImportResult, year: number): YearReport {
       at: t.datetime || t.date,
       rank: rank(t.side),
       apply: () => {
-        const r = applyChecked(t, t.line, `TRADING/${t.side === "buy" ? "BUY" : "SELL"}`);
-        if (inYear(t.date)) feesEur = feesEur.plus(t.feeEur);
-        if (r && inYear(t.date)) realized.push({ isin: t.isin, name: t.name, date: t.date, kind: t.kind, gainEur: r.gainEur });
+        const type = `TRADING/${t.side === "buy" ? "BUY" : "SELL"}`;
+        const r = applyChecked(t, t.line, type);
+        if (!inYear(t.date)) return;
+        feesEur = feesEur.plus(t.feeEur);
+        const withheld = dec(t.withheldEur);
+        if (taxedByTr(t.date)) {
+          if (r) {
+            taxedByBroker.push({ line: t.line, date: t.date, kind: "sale", isin: t.isin, name: t.name, amountEur: r.gainEur, withheldEur: withheld });
+          }
+          return;
+        }
+        if (!withheld.isZero()) notComputed.push({ line: t.line, type, reason: withheldNote(withheld) });
+        if (r) realized.push({ isin: t.isin, name: t.name, date: t.date, kind: t.kind, gainEur: r.gainEur });
       },
     })),
     ...data.transfersOut.map((t) => ({
@@ -103,32 +172,125 @@ export function computeYear(data: ImportResult, year: number): YearReport {
     })),
   ];
   // Übersprungene Bestandsbuchungen: ab diesem Zeitpunkt ist der Bestand der Position unsicher.
+  const markBroken = (depot: string, isin: string, line: number) => {
+    const key = `${depot}|${isin}`;
+    if (!broken.has(key)) broken.set(key, line);
+  };
   for (const u of data.unsupported) {
     const a = u.affects;
     if (!a) continue;
+    events.push({ at: a.datetime, rank: 0, apply: () => markBroken(a.depot, a.isin, u.line) });
+  }
+  // Kapitalausschüttung vor der Umstellung: kann eine Einlagenrückzahlung sein, die die Anschaffungskosten mindert.
+  for (const d of data.dividends) {
+    if (d.kind !== "capitalDistribution" || taxedByTr(d.date)) continue;
     events.push({
-      at: a.datetime,
+      at: d.datetime || d.date,
       rank: 0,
       apply: () => {
-        const key = `${a.depot}|${a.isin}`;
-        if (!broken.has(key)) broken.set(key, u.line);
+        notComputed.push({
+          line: d.line,
+          type: "CASH/DIVIDEND_EQUIVALENT_PAYMENT",
+          reason:
+            `Kapitalausschüttung von ${d.isin} (${formatEur(d.grossEur)}): Ob es eine Dividende oder eine Einlagenrückzahlung ist, ` +
+            `die die Anschaffungskosten mindert, ist aus dem Export nicht erkennbar. Nicht berechnet, spätere Verkäufe dieser Position ebenfalls nicht.`,
+        });
+        markBroken(d.depot, d.isin, d.line);
       },
     });
   }
   events.sort((a, b) => a.at.localeCompare(b.at) || a.rank - b.rank).forEach((e) => e.apply());
+
+  // Ausschüttungen im Jahr
+  const dividends: DividendLine[] = [];
+  const basketDividends: Dividend[] = [];
+  for (const d of data.dividends.filter((x) => inYear(x.date))) {
+    const type = d.kind === "fund" ? "CASH/DISTRIBUTION" : d.kind === "capitalDistribution" ? "CASH/DIVIDEND_EQUIVALENT_PAYMENT" : "CASH/DIVIDEND";
+    const gross = dec(d.grossEur);
+    const withheld = dec(d.withheldEur);
+    if (taxedByTr(d.date)) {
+      taxedByBroker.push({ line: d.line, date: d.date, kind: "dividend", isin: d.isin, name: d.name, amountEur: gross, withheldEur: withheld });
+      continue;
+    }
+    if (d.kind === "capitalDistribution") continue; // oben gemeldet
+    const skip = (reason: string) => notComputed.push({ line: d.line, type, reason });
+    if (d.kind === "fund") {
+      // § 186 Abs. 1, Abs. 2 Z 2 und Z 3 InvFG 2011: https://www.jusline.at/gesetz/invfg_2011/paragraf/186
+      skip(
+        `Ausschüttung des Fonds/ETF ${d.isin}: Steuerpflichtig ist bei Meldefonds der von der Meldestelle (OeKB) veröffentlichte Anteil, ` +
+          `bei Nicht-Meldefonds die ganze Ausschüttung (§ 186 InvFG 2011). Nicht berechnet.`,
+      );
+      continue;
+    }
+    if (d.originalCurrency !== "") {
+      skip(`Dividende von ${d.isin} in ${d.originalCurrency}: Umrechnung zum EZB-Referenzkurs wird noch nicht unterstützt. Nicht berechnet.`);
+      continue;
+    }
+    const country = countryOfIsin(d.isin);
+    if (country === null) {
+      skip(`Dividende von ${d.isin}: keine gültige ISIN, Quellenstaat unbekannt. Nicht berechnet.`);
+      continue;
+    }
+    if (country === "AT") {
+      skip(`Inländische Dividende von ${d.isin}: Die App rechnet bisher nur ausländische Kapitaleinkünfte. Nicht berechnet.`);
+      continue;
+    }
+    if (withheld.lt(0)) {
+      skip(`Dividende von ${d.isin} mit Steuergutschrift von ${formatEur(withheld.negated())} statt eines Abzugs. Nicht berechnet, bitte prüfen.`);
+      continue;
+    }
+    const treaty = dividendTreatyRate(country);
+    const treatyRate = treaty?.rate ?? ZERO;
+    if (!treaty && withheld.gt(0)) {
+      skip(
+        `Quellensteuer ${formatEur(withheld)} auf die Dividende von ${d.isin} wird nicht angerechnet: Der DBA-Satz für ${country} ist in der App noch nicht hinterlegt. ` +
+          `Die Steuer fällt dadurch eher zu hoch aus.`,
+      );
+    }
+    basketDividends.push({ grossEur: gross, withholdingEur: withheld, treatyRate });
+    dividends.push({
+      line: d.line,
+      isin: d.isin,
+      name: d.name,
+      date: d.date,
+      country,
+      grossEur: gross,
+      withheldEur: withheld,
+      treatyRate,
+      treatySource: treaty?.source ?? null,
+      creditableEur: D.min(withheld, gross.times(treatyRate)),
+    });
+  }
+
+  // Zinsen im Jahr
+  let kz861 = ZERO;
+  for (const i of data.interest.filter((x) => inYear(x.date))) {
+    const withheld = dec(i.withheldEur);
+    if (taxedByTr(i.date)) {
+      taxedByBroker.push({ line: i.line, date: i.date, kind: "interest", isin: i.isin, name: "", amountEur: dec(i.amountEur), withheldEur: withheld });
+      continue;
+    }
+    if (i.isin !== "") {
+      notComputed.push({ line: i.line, type: "CASH/INTEREST_PAYMENT", reason: `Zinsen aus dem Wertpapier ${i.isin} (KZ 863) werden noch nicht berechnet.` });
+      continue;
+    }
+    if (!withheld.isZero()) notComputed.push({ line: i.line, type: "CASH/INTEREST_PAYMENT", reason: withheldNote(withheld) });
+    kz861 = kz861.plus(i.amountEur);
+  }
 
   const gainsOf = (kind: AssetKind) => realized.filter((r) => r.kind === kind).map((r) => r.gainEur);
   const basket = computeBasket275({
     realizedGainsEur: gainsOf("security"),
     derivativeGainsEur: gainsOf("securitizedDerivative"),
     cryptoGainsEur: gainsOf("crypto"),
-    dividends: [],
+    dividends: basketDividends,
   });
 
-  const kz861 = D.sum(ZERO, ...data.interest.filter((i) => inYear(i.date)).map((i) => dec(i.amountEur)));
+  taxedByBroker.sort((a, b) => a.line - b.line);
 
   return {
     year,
+    taxSimpleSince: since,
     kz994: basket.kz994,
     kz892: basket.kz892,
     kz995: basket.kz995,
@@ -144,6 +306,9 @@ export function computeYear(data: ImportResult, year: number): YearReport {
     tax25Eur: D.max(ZERO, kz861).times(BANK_INTEREST_RATE),
     feesEur,
     realized,
+    dividends,
+    taxedByBroker,
+    brokerWithheldEur: D.sum(ZERO, ...taxedByBroker.map((x) => x.withheldEur)),
     openPositions: positions.open().filter((p) => !broken.has(`${p.depot}|${p.isin}`)),
     notComputed,
   };

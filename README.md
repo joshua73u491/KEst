@@ -13,12 +13,13 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/fx.ts` | Umrechnung in EUR zum EZB-Referenzkurs am Buchungstag |
 | `src/costBasis.ts` | Gleitender Durchschnittspreis je ISIN und Depot (§ 27a Abs 4 Z 3 EStG) |
 | `src/basket275.ts` | 27,5 %-Topf: KZ 994, 892, 863, 998, Verlustausgleich, Quellensteuer-Anrechnung |
+| `src/treaty.ts` | DBA-Höchstsätze für Quellensteuer auf Dividenden je Land, mit Link auf den Abkommenstext im RIS |
 | `src/tariff.ts` | Einkommensteuertarif 2026 und Mehrsteuer aus tarifbesteuerten Derivaten (KZ 857) |
 | `src/reserve.ts` | Soll-Rücklage inkl. Sicherheitspuffer |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
-| `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr |
+| `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Noch offen in Phase 1: Dividenden und Quellensteuer aus dem Trade-Republic-Export (Buchungstyp noch unbekannt), EZB-Kursabruf für Fremdwährungs-Trades, IBKR-Import.
+Noch offen in Phase 1: EZB-Kursabruf für Fremdwährungs-Trades und -Dividenden, IBKR-Import, lokale Historie, Prüfassistent.
 
 ## Entwickeln
 
@@ -27,6 +28,7 @@ npm install
 npm test          # alle Tests
 npm run typecheck # TypeScript-Prüfung
 npm run report -- data/private/<Export>.csv 2026   # Auswertung einer echten Datei
+npm run report -- data/private/<Export>.csv 2026 --steuereinfach-seit JJJJ-MM-TT   # Konto mit KESt-Abzug durch Trade Republic
 ```
 
 Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, Zeitraum seit Kontoeröffnung.
@@ -42,7 +44,13 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **Kauf und Verkauf mit identischem Zeitstempel:** Der Kauf wird zuerst verbucht, unabhängig von der Reihenfolge in der Datei (`src/yearReport.ts`). Bei bereits vorhandenem Bestand beeinflusst das den Durchschnittspreis; offene Frage in `docs/HANDOFF.md`.
 - **Fehlender Bestand:** Übersteigt ein Verkauf oder Übertrag den bekannten Bestand (z. B. Kauf vor dem Exportzeitraum), wird er samt allen späteren Abgängen derselben Position als „nicht berechnet“ gemeldet und die Position nicht mehr angezeigt. Dasselbe gilt ab einer übersprungenen Wertpapierbuchung (z. B. Fremdwährung, unbekannte Kapitalmaßnahme, ungültige Zahl). Die Rücklage kann dann zu niedrig sein; die App weist darauf hin.
 - **Fonds und ETFs:** Ausschüttungsgleiche Erträge (KZ 937) und die Pauschalbesteuerung von Nicht-Meldefonds rechnet die App noch nicht. Käufe und Verkäufe werden gerechnet, je Fonds erscheint ein Hinweis unter „Nicht berechnet“.
-- **Spalte `tax` im Export:** Ein dort ausgewiesener Steuerbetrag wird noch nicht angerechnet, sondern als Hinweis gemeldet. Die Rücklage fällt dadurch eher zu hoch aus.
+- **Spalte `tax` im Export:** Bei einem Konto ohne KESt-Abzug wird ein dort ausgewiesener Steuerbetrag auf Verkäufe und Zinsen nicht angerechnet, sondern als Hinweis gemeldet. Die Rücklage fällt dadurch eher zu hoch aus. Bei Dividenden gilt er als ausländische Quellensteuer (siehe unten).
+- **Steuereinfach seit:** Trade Republic ist in Österreich seit 24.04.2025 steuereinfach, Bestandskunden erst nach Zustimmung in der App ([broker-test.at](https://www.broker-test.at/news/trade-republic-wann-und-wie-werden-bestandskundschaften-steuereinfach/)). Gibt der Nutzer den Tag der Umstellung an, gelten Verkäufe, Ausschüttungen und Zinsen ab diesem Tag als endbesteuert: Sie zählen weder für die E1kv noch für die Rücklage und werden mit der von Trade Republic einbehaltenen Steuer (Spalte `tax`) getrennt ausgewiesen. Der Bestand wird weiter über die ganze Historie geführt. Ohne Angabe gilt das Konto als nicht steuereinfach (`src/yearReport.ts`).
+- **Dividenden aus dem Trade-Republic-Export:** Buchungstyp `CASH/DIVIDEND` mit Anlageklasse `STOCK`. `amount` ist der Bruttobetrag in EUR, `tax` (negativ) die einbehaltene Steuer, ein negativer `amount` ein Storno. Quelle: der Trade-Republic-CSV-Importer von [Portfolio Performance](https://github.com/portfolio-performance/portfolio/blob/96f6040818d5b5e8aeaca63e60e7e6857b4befa2/name.abuchen.portfolio/src/name/abuchen/portfolio/datatransfer/traderepublic/TradeRepublicCSVExtractor.java). Ein echtes Beispiel eines österreichischen Kontos ohne KESt-Abzug lag nicht vor.
+- **Quellensteuer = Spalte `tax` bei Dividenden:** Bei einem nicht steuereinfachen Konto gilt der ganze Betrag als ausländische Quellensteuer. Anrechenbar höchstens bis zum DBA-Satz (`src/treaty.ts`) und nach dem Verlustausgleich gekürzt (Annahme oben).
+- **Quellenstaat = Land der ISIN:** Bei Hinterlegungsscheinen (ADR) oder Gesellschaften mit Sitz in einem anderen Land stimmt das nicht. Für Länder ohne hinterlegten DBA-Satz (z. B. Irland, Japan, Vereinigtes Königreich) wird keine Quellensteuer angerechnet und ein Hinweis gezeigt. Die MLI-synthetisierten Abkommensfassungen sind nicht geprüft.
+- **Storno einer Ausschüttung:** Kehrt ein Storno eine frühere Ausschüttung derselben ISIN genau um (Betrag und Steuer), heben sich beide auf. Ohne passendes Gegenstück wird das Storno als „nicht berechnet“ gemeldet. Liegt das Storno in einem anderen Jahr als die ursprüngliche Ausschüttung, kommt ein Hinweis: Die Neubuchung zählt im Jahr ihres Buchungsdatums.
+- **Nicht berechnet:** Ausschüttungen von Fonds und ETFs (steuerpflichtig ist laut § 186 InvFG 2011 bei Meldefonds der von der OeKB veröffentlichte Anteil, bei Nicht-Meldefonds die ganze Ausschüttung), Dividenden in Fremdwährung (bis zur EZB-Umrechnung), Kapitalausschüttungen (`DIVIDEND_EQUIVALENT_PAYMENT`, möglicherweise Einlagenrückzahlung; danach auch Verkäufe dieser Position), inländische Dividenden (ISIN AT), Zinsen aus Wertpapieren und Dividenden mit Steuergutschrift.
 - **Altbestand wird nicht erkannt:** Krypto, angeschafft vor dem 1.3.2021, und Wertpapiere, angeschafft vor dem 1.1.2011, sind nicht steuerverfangen bzw. anders zu behandeln. Die App rechnet alle Käufe als Neubestand. Für Trade-Republic-Konten ist das in der Regel ohne Bedeutung, für ältere Depots aber zu prüfen.
 - **Umrechnung durch Trade Republic:** Trades mit einer Originalwährung außer EUR werden nicht gerechnet (Umrechnung zum EZB-Referenzkurs fehlt noch) und als „nicht berechnet“ gemeldet.
 
