@@ -258,7 +258,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
       rank: rank(original.side),
       apply: () => {
         const side = original.side === "buy" ? "BUY" : "SELL";
-        const type = original.depot === TR_DEPOT ? `TRADING/${side}` : `Trade/${side}`;
+        const type = original.depot === TR_DEPOT ? `TRADING/${side}` : original.depot === "DEGIRO" ? "DEGIRO/Transaktion" : `Trade/${side}`;
         const converted = tradeInEur(original);
         if (typeof converted === "string") {
           // Ohne Kurs kein Trade: der Bestand dieser Position ist ab hier unsicher.
@@ -431,7 +431,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
   let kz861 = ZERO;
   let brokerInterestEur = ZERO;
   for (const i of data.interest.filter((x) => inYear(x.date))) {
-    const type = i.depot === TR_DEPOT ? "CASH/INTEREST_PAYMENT" : "CashTransaction/Broker Interest Received";
+    const type = i.depot === TR_DEPOT ? "CASH/INTEREST_PAYMENT" : i.depot === "DEGIRO" ? "DEGIRO/Zinsen" : "CashTransaction/Broker Interest Received";
     const withheld = dec(i.withheldEur);
     if (taxedByTr(i.depot, i.date)) {
       taxedByBroker.push({ line: i.line, date: i.date, kind: "interest", isin: i.isin, name: "", amountEur: dec(i.amountEur), withheldEur: withheld });

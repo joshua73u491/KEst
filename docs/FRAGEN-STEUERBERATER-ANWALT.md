@@ -249,6 +249,20 @@ Alle Beispiele stammen aus `test/yearReport.test.ts`, Beispieldatei `test/fixtur
 
 **Antwort:**
 
+### 1.19 · DEGIRO: AutoFX und Guthabenzinsen (nachgetragen mit Schritt 3.2) · Priorität B
+
+**Derzeit:**
+- **Fremdwährung:** Mit AutoFX tauscht DEGIRO beim Handel tatsächlich in EUR. Dann zählt der EUR-Betrag aus dem Export (Rz 6201c, zweiter Punkt). Ohne AutoFX rechnet die App zum EZB-Kurs am Handelstag.
+- **Zinsen:** Guthabenzinsen der flatexDEGIRO Bank zählen wie Zinsen aus Geldeinlagen bei Kreditinstituten, also KZ 861 mit 25 %.
+
+**Beispiel aus den Tests** (`test/degiro.test.ts`, „Fremdwährung mit AutoFX …“):
+- Kauf 10 Stück für 1.000 USD = 800 € laut Export, Verkauf 4 Stück für 520 USD = 400 € laut Export → Gewinn **80 €**.
+- Im Test ohne AutoFX ergibt sich zum EZB-Kurs (1,25 bzw. 1,30) dasselbe. In der Praxis weichen DEGIRO-Kurs und EZB-Kurs leicht voneinander ab.
+
+**Fragen:** Ist AutoFX eine tatsächliche Konvertierung? Gehören flatex-Guthabenzinsen in KZ 861?
+
+**Antwort:**
+
 ---
 
 ## Teil 2 · Fragen an den Anwalt
