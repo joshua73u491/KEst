@@ -24,6 +24,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/sollTimeline.ts` | Soll je Steuerjahr bis heute; im laufenden Jahr auch der Höchststand an allen bisherigen Buchungstagen |
 | `src/setup.ts`, `src/web/setupWizard.ts` | Einrichtungsassistent: Anleitung zum Export je Broker (mit Platz für Screenshots), Sofortprüfung der Datei, drei Fragen |
 | `src/simulator.ts` | Verkaufs-Simulator (Gewinn mit gleitendem Durchschnitt, Steuer des Jahres ohne und mit dem Verkauf, Soll vorher und nachher) und Kauf-Check (Guthaben nach Abzug der Rücklage) |
+| `src/e1kvReport.ts`, `src/rules.ts` | E1kv-Bericht als PDF (ohne Bibliothek, im Browser) und CSV (Excel, Strichpunkt): Kennzahlen, Steuer und Soll, Einstellungen, Belegliste mit Fundstellen, nicht Berechnetes, Regelversion, Hinweis „Berechnungstool, keine Steuerberatung“ |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -33,7 +34,9 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/import/xml.ts` | Minimaler XML-Leser ohne Abhängigkeiten (Node und Browser) |
 | `src/yearReport.ts` | Jahresauswertung: Bestände über die ganze Historie, Kennzahlen und Steuer fürs gewählte Jahr; Dividenden mit Quellensteuer; Erträge ab „steuereinfach seit“ getrennt als endbesteuert |
 
-Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`; Joshua lässt sie parallel klären und hat den Weiterbau freigegeben (20.11.2026). Phase 3: 3.1 (Einrichtungsassistent), 3.2 (DEGIRO-Import) und 3.3 (Verkaufs-Simulator und Kauf-Check) umgesetzt.
+Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). Phase 2: Schritte 2.1 (nicht verbriefte Derivate), 2.2 (Tarif-Schätzung), 2.3 (Rücklagen-Ledger) und 2.4 (Warnen und erinnern) umgesetzt. Gate 2: Die offenen Fragen an Steuerberater und Anwalt stehen in `docs/FRAGEN-STEUERBERATER-ANWALT.md`; Joshua lässt sie parallel klären und hat den Weiterbau freigegeben (20.11.2026). Phase 3: 3.1 (Einrichtungsassistent), 3.2 (DEGIRO-Import) 3.3 (Verkaufs-Simulator und Kauf-Check) und 3.4 (E1kv-Bericht als PDF und CSV) umgesetzt.
+
+**E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
 **Verkaufs-Simulator:** Position wählen, Stückzahl und Preis je Stück in EUR eingeben. Die App rechnet den Gewinn oder Verlust mit dem gleitenden Durchschnittspreis und zeigt die Steuer des Jahres bis heute ohne und mit dem Verkauf (alle Töpfe, Verlustausgleich und Quellensteuer inklusive) sowie das Soll vorher und nachher. Bei Trade Republic nach der Umstellung auf steuereinfach zeigt sie, dass der Verkauf endbesteuert wäre. Kurse ruft die App nicht ab; der Preis kommt vom Nutzer. Optionen und Futures simuliert sie noch nicht.
 
@@ -67,6 +70,7 @@ npm run report -- data/private/<Export>.csv 2026 --steuereinfach-seit JJJJ-MM-TT
 npm run report -- data/private/<Export>.csv 2026 --ezb-kurse <eurofxref-hist.csv>   # Dividenden in Fremdwährung
 npm run report -- data/private/<Flex>.xml 2026 --ezb-kurse <eurofxref-hist.csv> [--ibkr-zinsen 861]   # IBKR
 npm run report -- data/private/a.csv data/private/b.csv data/private/ib.xml 2026   # mehrere Dateien zusammenführen
+npm run report -- data/private/<Export>.csv 2026 --pdf data/private/e1kv.pdf --csv data/private/e1kv.csv   # E1kv-Bericht
 ```
 
 IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.
