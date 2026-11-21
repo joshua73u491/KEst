@@ -5,7 +5,7 @@ Joshua will ein integriertes Tool, das die Daten bei den Brokern, die es zulasse
 | Broker | Automatisch? | Weg |
 | --- | --- | --- |
 | IBKR | **ja, umgesetzt (Schritt 4.1)** | offizieller Flex Web Service mit Token und Query-ID, nur lesend |
-| DEGIRO, Trading 212 und weitere | möglich über SnapTrade | Entscheidung Joshua (siehe unten) |
+| DEGIRO, Trading 212 und weitere | **ja, umgesetzt (Schritt 4.2)** | SnapTrade Personal: eigenes kostenloses Konto des Nutzers (Entscheidung Joshua, 21.11.2026) |
 | Trade Republic | nein | nur CSV-Export; die inoffizielle API (pytr) ist laut PRODUKTPLAN ausgeschlossen |
 
 ## IBKR: Flex Web Service
@@ -46,7 +46,46 @@ IBKR sendet keine CORS-Header (am 21.11.2026 geprüft). Ein Browser darf deshalb
 - **Lokal** (Token bleibt auf dem eigenen Rechner): `npm run relay` startet es auf `http://localhost:8787`. Diese Adresse ist in der Content-Security-Policy der App immer erlaubt.
 - **Öffentlich gehostet** (für Nutzer ohne Node): Dann geht das Token über diesen Server. **Entscheidung Joshua**, mit Datenschutzerklärung (Anwalt, Frage 2.3). Die Adresse beim Bauen angeben: `KEST_RELAY_ORIGINS=https://relay.example npm run build:web`. Beim Relay selbst gehört die Adresse der App in `KEST_RELAY_ORIGINS`.
 
-## SnapTrade (DEGIRO, Trading 212, IBKR und weitere)
+## SnapTrade Personal (Schritt 4.2)
+
+**Entscheidung Joshua (21.11.2026):** SnapTrade Personal und das Relay nur lokal.
+
+**Einmal einrichten (Nutzer):**
+1. Ein kostenloses Konto im [SnapTrade-Dashboard](https://dashboard.snaptrade.com/home) anlegen, E-Mail bestätigen und die Zwei-Faktor-Anmeldung einschalten.
+2. Dort die Broker verbinden (DEGIRO, Trading 212 und weitere).
+3. Unter „API Key“ einen **Personal API Key** erstellen und Client ID und Consumer Key notieren.
+
+**Wie die App abruft:**
+- Abrufe: `GET /accounts/all` (nur Anlagekonten), dann `GET /accounts/{id}/activities` seitenweise mit höchstens 1000 Einträgen je Seite.
+- Jede Anfrage ist signiert: HMAC-SHA256 mit dem Consumer Key über kanonisches JSON, laut [Request Signatures](https://docs.snaptrade.com/docs/request-signatures).
+- Bei 429 wartet die App laut `Retry-After`.
+- Das Ergebnis kommt als **Schnappschuss** (JSON) in die Historie. Jeder neue Abruf ersetzt den vorigen.
+- Jede Aktivität zählt einmal, auch wenn mehrere Abrufe gespeichert sind.
+- **Kein Weg direkt aus der Webseite:** SnapTrade erlaubt Webseiten zwar Abrufe (CORS), aber nicht den Header `Signature` (geprüft am 21.11.2026). Der Abruf läuft deshalb wie bei IBKR über das lokale Relay (`POST /snaptrade`) oder die Kommandozeile:
+
+```bash
+export SNAPTRADE_CLIENT_ID=… SNAPTRADE_CONSUMER_KEY=…
+npm run sync -- --snaptrade
+npm run report -- data/private/snaptrade/snaptrade-2026-11-21.json 2026
+```
+
+**Zuordnung** (`src/import/snaptrade.ts`, Annahmen im README):
+
+| SnapTrade-Typ | in der App |
+| --- | --- |
+| BUY, SELL | Kauf, Verkauf; Kurswert = Stück × Kurs, Spesen getrennt; Fremdwährung zum EZB-Kurs am Handelstag |
+| DIVIDEND (+ TAX am selben Tag) | Dividende mit Quellensteuer; ETF und Fonds als Fondsausschüttung |
+| CAPITAL_GAINS_LONG/SHORT | Fondsausschüttung (nicht berechnet) |
+| INTEREST | Zinsen; bei DEGIRO/flatex wie Zinsen aus Geldeinlagen (KZ 861), sonst Broker-Zinsen laut Einstellung |
+| SPLIT, Überträge, Optionen, STOCK_DIVIDEND, REI, ADJUSTMENT | gemeldet, spätere Verkäufe der Position nicht gerechnet |
+| CONTRIBUTION, WITHDRAWAL, FEE | ohne Bedeutung für die KESt |
+
+**Grenze:** SnapTrade liefert **keine ISIN**, nur FIGI.
+- Steht eine ISIN in der Beschreibung einer Buchung, gilt sie für alle Buchungen desselben Wertpapiers. Sonst ist die Kennung die FIGI-Klasse.
+- Käufe und Verkäufe rechnet die App auch ohne ISIN.
+- Dividenden ohne ISIN rechnet sie nicht, weil der Quellenstaat dann unbekannt ist; sie meldet das unter „Nicht berechnet“.
+
+### Vergleich der Varianten (Entscheidungsgrundlage)
 
 Laut [SnapTrade](https://docs.snaptrade.com/docs/personal-vs-commercial) und [Preisseite](https://snaptrade.com/pricing), Stand 21.11.2026:
 
@@ -61,7 +100,7 @@ Offen bei beiden Varianten:
 - Ob alle Steuerdetails ankommen: ISIN, Gebühren, Quellensteuer, Kapitalmaßnahmen.
 - Die Daten laufen über einen US-Dienstleister (Datenschutz).
 
-## Entscheidungen bei Joshua
+## Entscheidungen
 
-1. Relay öffentlich hosten (EU), oder IBKR-Abruf nur lokal bzw. auf der Kommandozeile?
-2. SnapTrade: Personal, Commercial oder vorerst nicht?
+1. Relay: **nur lokal** (Joshua, 21.11.2026). Öffentliches Hosting bleibt möglich, braucht aber Host, Domain und Datenschutzerklärung.
+2. SnapTrade: **Personal** (Joshua, 21.11.2026). Commercial wäre bequemer für Nutzer, kostet aber und braucht einen Server.

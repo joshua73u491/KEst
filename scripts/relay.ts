@@ -1,10 +1,12 @@
-// Lokaler Relay-Server für den automatischen IBKR-Abruf aus der Web-App (IBKR erlaubt keine Abrufe aus Webseiten).
+// Lokaler Relay-Server für den automatischen Abruf aus der Web-App: IBKR (/ibkr-flex) und SnapTrade (/snaptrade).
+// Beide erlauben die nötigen Abrufe nicht direkt aus Webseiten (CORS).
 // Start: npm run relay  (Port 8787, nur auf diesem Rechner erreichbar)
 // Erlaubte Seiten: KEST_RELAY_ORIGINS, durch Komma getrennt (Standard: die lokalen Testadressen der App).
 // Speichert nichts und schreibt keine Protokolle mit Token oder Inhalt.
 import { createServer } from "node:http";
 import { handleRelay } from "../src/sync/relay.js";
 import type { HttpGet } from "../src/sync/ibkrFlexService.js";
+import type { SnapFetch } from "../src/sync/snaptrade.js";
 
 const port = Number(process.env.KEST_RELAY_PORT ?? 8787);
 const allowedOrigins = (process.env.KEST_RELAY_ORIGINS ?? "http://localhost:4317,http://localhost:4318,http://localhost:4319,null")
@@ -14,6 +16,11 @@ const allowedOrigins = (process.env.KEST_RELAY_ORIGINS ?? "http://localhost:4317
 const get: HttpGet = async (url) => {
   const res = await fetch(url, { headers: { "User-Agent": "KESt-Ruecklage/1.0" } });
   return { status: res.status, text: await res.text() };
+};
+
+const snapFetch: SnapFetch = async (url, init) => {
+  const res = await fetch(url, init);
+  return { status: res.status, headers: res.headers, text: () => res.text() };
 };
 
 createServer(async (req, res) => {
@@ -26,7 +33,7 @@ createServer(async (req, res) => {
     headers,
     ...(req.method === "POST" ? { body: Buffer.concat(chunks) } : {}),
   });
-  const response = await handleRelay(request, { get, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), allowedOrigins });
+  const response = await handleRelay(request, { get, snapFetch, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), allowedOrigins });
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
   res.end(Buffer.from(await response.arrayBuffer()));
 }).listen(port, "127.0.0.1", () => {

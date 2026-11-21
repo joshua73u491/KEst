@@ -29,7 +29,7 @@ import { computeYear, type YearOptions, type YearReport } from "../yearReport.js
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
 import { initSetupWizard } from "./setupWizard.js";
 import { clearHistory, loadFlexSettings, loadHistory, saveFlexSettings, saveHistory, type FlexSettings } from "./storage.js";
-import { syncViaRelay } from "../sync/webSync.js";
+import { syncSnapTradeViaRelay, syncViaRelay } from "../sync/webSync.js";
 
 interface State {
   /** alle gespeicherten Dateien und Einstellungen */
@@ -656,7 +656,17 @@ function runOrderCheck() {
 
 // ---------------------------------------------------------------- Automatischer IBKR-Abruf (Phase 4, Schritt 4.1)
 
-const EMPTY_FLEX: FlexSettings = { token: "", queryId: "", since: "", relay: "http://localhost:8787", auto: false, lastSync: "" };
+const EMPTY_FLEX: FlexSettings = {
+  token: "",
+  queryId: "",
+  since: "",
+  relay: "http://localhost:8787",
+  auto: false,
+  lastSync: "",
+  snapClientId: "",
+  snapConsumerKey: "",
+  lastSnapSync: "",
+};
 let flex: FlexSettings = { ...EMPTY_FLEX };
 let syncing = false;
 const ROLLING_NAME = "IBKR automatisch (letzte 365 Tage).xml";
@@ -667,7 +677,10 @@ function applyFlexToControls() {
   $<HTMLInputElement>("syncSince").value = flex.since;
   $<HTMLInputElement>("syncRelay").value = flex.relay;
   $<HTMLInputElement>("syncAuto").checked = flex.auto;
-  if (flex.token) $<HTMLDetailsElement>("syncBox").open = true;
+  $<HTMLInputElement>("snapClientId").value = flex.snapClientId;
+  $<HTMLInputElement>("snapConsumerKey").value = flex.snapConsumerKey;
+  if (flex.token || flex.snapClientId) $<HTMLDetailsElement>("syncBox").open = true;
+  if (flex.lastSnapSync) $("snapStatus").textContent = `Letzter erfolgreicher SnapTrade-Abruf: ${deDate(flex.lastSnapSync)}.`;
   if (flex.lastSync) $("syncStatus").textContent = `Letzter erfolgreicher Abruf: ${deDate(flex.lastSync)}.`;
 }
 
@@ -679,6 +692,9 @@ function readFlexControls(): FlexSettings {
     relay: $<HTMLInputElement>("syncRelay").value.trim(),
     auto: $<HTMLInputElement>("syncAuto").checked,
     lastSync: flex.lastSync,
+    snapClientId: $<HTMLInputElement>("snapClientId").value.trim(),
+    snapConsumerKey: $<HTMLInputElement>("snapConsumerKey").value.trim(),
+    lastSnapSync: flex.lastSnapSync,
   };
 }
 
@@ -688,6 +704,44 @@ const minusDays = (iso: string, days: number) => new Date(Date.UTC(Number(iso.sl
  * Ruft die Flex Query über das Relay ab und speichert sie wie eine importierte Datei. Erster Abruf: ab „Erster Abruf ab“
  * in Fenstern von 365 Tagen. Danach: die letzten 365 Tage als laufende Datei, die bei jedem Abruf ersetzt wird.
  */
+/**
+ * SnapTrade Personal über das Relay. Der Abruf enthält die ganze bekannte Historie aller verbundenen Konten; er ersetzt
+ * den vorigen SnapTrade-Abruf in der Historie.
+ */
+let snapSyncing = false;
+async function runSnapSync() {
+  if (snapSyncing) return;
+  const status = $("snapStatus");
+  if (!flex.snapClientId || !flex.snapConsumerKey) {
+    status.textContent = "Bitte Client ID und Consumer Key eintragen.";
+    return;
+  }
+  snapSyncing = true;
+  const now = today();
+  status.textContent = "Rufe bei SnapTrade ab …";
+  try {
+    const text = await syncSnapTradeViaRelay(
+      { relay: flex.relay, clientId: flex.snapClientId, consumerKey: flex.snapConsumerKey },
+      { fetchFn: (url, init) => fetch(url, init) },
+    );
+    const base = { ...state.history, files: state.history.files.filter((f) => f.broker !== "SnapTrade") };
+    const r = addFile(base, `SnapTrade ${now}.json`, text, new Date().toISOString(), newId());
+    state.history = r.history;
+    state.mode = "history";
+    state.error = "";
+    flex = { ...flex, lastSnapSync: now };
+    saveFlexSettings(flex).catch(() => undefined);
+    persist();
+    refresh();
+    const snap = JSON.parse(text) as { accounts?: unknown[] };
+    status.textContent = `Abruf am ${deDate(now)} erfolgreich: ${snap.accounts?.length ?? 0} ${snap.accounts?.length === 1 ? "Konto" : "Konten"}.`;
+  } catch (e) {
+    status.textContent = `Abruf nicht möglich: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    snapSyncing = false;
+  }
+}
+
 async function runSync(mode: "full" | "rolling") {
   if (syncing) return;
   const status = $("syncStatus");
@@ -1082,8 +1136,14 @@ function render() {
     flex = readFlexControls();
     saveFlexSettings(flex).catch(() => undefined);
   });
+  $<HTMLFormElement>("snapForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    flex = readFlexControls();
+    saveFlexSettings(flex).catch(() => undefined);
+    void runSnapSync();
+  });
   $("syncForget").addEventListener("click", () => {
-    if (!window.confirm("Token, Query-ID und Relay-Adresse in diesem Browser löschen? Die abgerufenen Dateien bleiben gespeichert.")) return;
+    if (!window.confirm("Token, Query-ID, SnapTrade-Schlüssel und Relay-Adresse in diesem Browser löschen? Die abgerufenen Daten bleiben gespeichert.")) return;
     flex = { ...EMPTY_FLEX };
     saveFlexSettings(flex).catch(() => undefined);
     applyFlexToControls();
@@ -1134,6 +1194,7 @@ function render() {
           applyFlexToControls();
           // automatisch beim Öffnen, höchstens einmal am Tag
           if (s.auto && s.token && s.queryId && s.relay && s.lastSync !== today()) void runSync(s.lastSync ? "rolling" : "full");
+          if (s.auto && s.snapClientId && s.snapConsumerKey && s.relay && s.lastSnapSync !== today()) void runSnapSync();
         },
         () => undefined,
       );

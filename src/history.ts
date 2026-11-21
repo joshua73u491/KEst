@@ -1,6 +1,7 @@
 import type { FilePeriod } from "./check.js";
 import { DEGIRO_DEPOT, processDegiroFiles, readDegiroRows, type DegiroFile } from "./import/degiro.js";
 import { processIbkrStatements, readIbkrFlexStatements, type FlexStatementData } from "./import/ibkrFlex.js";
+import { mergeSnapTrade, processSnapTrade, readSnapTradeSnapshot } from "./import/snaptrade.js";
 import type { ImportResult } from "./import/model.js";
 import { parseExport, type Broker } from "./import/readAny.js";
 import { processTradeRepublicRows, readTradeRepublicRows, type TrSourceRow } from "./import/tradeRepublic.js";
@@ -157,6 +158,14 @@ export function combine(history: History): Combined {
   }
   if (degiro.length > 0) parts.push(processDegiroFiles(degiro));
 
+  // SnapTrade: Abrufe zusammenführen, jede Aktivität (Konto und ID) zählt einmal, der neueste Abruf gewinnt
+  const snaps = history.files.filter((x) => x.broker === "SnapTrade").map((f) => readSnapTradeSnapshot(f.text, f.name));
+  if (snaps.length > 0) {
+    const merged = mergeSnapTrade(snaps);
+    duplicates += merged.duplicates;
+    parts.push(processSnapTrade(merged.entries));
+  }
+
   const data = emptyResult();
   for (const p of parts) {
     data.trades.push(...p.trades);
@@ -189,6 +198,15 @@ export function filePeriods(history: History): FilePeriod[] {
         .map((m) => `${m[3]}-${m[2]}-${m[1]}`)
         .sort();
       if (dates.length > 0) periods.push({ depot: DEGIRO_DEPOT, file: f.name, from: dates[0]!, to: dates[dates.length - 1]!, exact: false });
+    } else if (f.broker === "SnapTrade") {
+      // je Konto erste und letzte Buchung des Abrufs
+      const data = processSnapTrade(mergeSnapTrade([readSnapTradeSnapshot(f.text, f.name)]).entries);
+      const byDepot = new Map<string, string[]>();
+      for (const x of [...data.trades, ...data.dividends, ...data.interest]) byDepot.set(x.depot, [...(byDepot.get(x.depot) ?? []), x.date]);
+      for (const [depot, dates] of byDepot) {
+        dates.sort();
+        periods.push({ depot, file: f.name, from: dates[0]!, to: dates[dates.length - 1]!, exact: false });
+      }
     } else {
       for (const st of readIbkrFlexStatements(f.text, f.name)) {
         if (st.fromDate && st.toDate) periods.push({ depot: `IBKR ${st.accountId}`.trim(), file: f.name, from: st.fromDate, to: st.toDate, exact: true });
