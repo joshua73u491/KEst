@@ -57,8 +57,8 @@ export async function clearHistory(): Promise<void> {
 }
 
 /**
- * Zugangsdaten für den automatischen IBKR-Abruf. Getrennt von der Historie gespeichert und bewusst **nicht** im
- * Backup: Das Token erlaubt das Lesen aller Berichte des Kontos.
+ * Zugangsdaten für den automatischen Abruf (IBKR Flex Web Service, SnapTrade Personal). Getrennt von der Historie
+ * gespeichert und bewusst **nicht** im Backup: Token und Schlüssel erlauben das Lesen aller Daten der Konten.
  */
 export interface FlexSettings {
   token: string;
@@ -70,6 +70,11 @@ export interface FlexSettings {
   auto: boolean;
   /** JJJJ-MM-TT des letzten erfolgreichen Abrufs */
   lastSync: string;
+  /** SnapTrade Personal: Client ID und Consumer Key des Nutzers */
+  snapClientId: string;
+  snapConsumerKey: string;
+  /** JJJJ-MM-TT des letzten erfolgreichen SnapTrade-Abrufs */
+  lastSnapSync: string;
 }
 
 const FLEX_KEY = "ibkr-flex";
@@ -85,6 +90,9 @@ export async function loadFlexSettings(): Promise<FlexSettings | null> {
     relay: typeof x.relay === "string" ? x.relay : "",
     auto: x.auto === true,
     lastSync: typeof x.lastSync === "string" ? x.lastSync : "",
+    snapClientId: typeof x.snapClientId === "string" ? x.snapClientId : "",
+    snapConsumerKey: typeof x.snapConsumerKey === "string" ? x.snapConsumerKey : "",
+    lastSnapSync: typeof x.lastSnapSync === "string" ? x.lastSnapSync : "",
   };
 }
 

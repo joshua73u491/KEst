@@ -27,6 +27,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/e1kvReport.ts`, `src/rules.ts` | E1kv-Bericht als PDF (ohne Bibliothek, im Browser) und CSV (Excel, Strichpunkt): Kennzahlen, Steuer und Soll, Einstellungen, Belegliste mit Fundstellen, nicht Berechnetes, Regelversion, Hinweis „Berechnungstool, keine Steuerberatung“ |
 | `src/pwa/files.ts`, `src/pwa/png.ts`, `scripts/build-web.ts` | Installierbare Web-App: Manifest, Service Worker (offline), Symbole als PNG/SVG, Content-Security-Policy, Header für statisches Hosting |
 | `src/sync/ibkrFlexService.ts`, `src/sync/relay.ts`, `src/sync/webSync.ts` | Automatischer IBKR-Abruf über den Flex Web Service (Token und Query-ID): Kern, zustandsloses Relay für die Web-App (IBKR erlaubt kein CORS), Abruf aus der Web-App |
+| `src/sync/snaptrade.ts`, `src/import/snaptrade.ts` | SnapTrade Personal: signierter Abruf aller Anlagekonten und Aktivitäten, Schnappschuss als JSON, Zuordnung zum Datenmodell |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -42,7 +43,7 @@ Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). P
 
 **Gate 3:** Testanleitung für die Testgruppe in `docs/TESTGRUPPE.md`.
 
-**Automatischer Abruf (Phase 4, auf Joshuas Wunsch):** IBKR über den offiziellen Flex Web Service. Auf der Kommandozeile `npm run sync`, in der Web-App über ein Relay (`npm run relay`, lokal). DEGIRO und andere wären über SnapTrade möglich (Entscheidung offen), Trade Republic bleibt beim CSV-Export. Details und Entscheidungen: `docs/AUTOMATISCHER-ABRUF.md`.
+**Automatischer Abruf (Phase 4, auf Joshuas Wunsch):** IBKR über den offiziellen Flex Web Service. Auf der Kommandozeile `npm run sync`, in der Web-App über ein Relay (`npm run relay`, lokal). DEGIRO, Trading 212 und weitere über SnapTrade Personal (eigenes kostenloses Konto des Nutzers, `npm run sync -- --snaptrade` oder Relay). Trade Republic bleibt beim CSV-Export. Details und Entscheidungen: `docs/AUTOMATISCHER-ABRUF.md`.
 
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
@@ -80,7 +81,8 @@ npm run report -- data/private/<Flex>.xml 2026 --ezb-kurse <eurofxref-hist.csv> 
 npm run report -- data/private/a.csv data/private/b.csv data/private/ib.xml 2026   # mehrere Dateien zusammenführen
 npm run report -- data/private/<Export>.csv 2026 --pdf data/private/e1kv.pdf --csv data/private/e1kv.csv   # E1kv-Bericht
 IBKR_FLEX_TOKEN=… npm run sync -- --query <Query-ID> --seit 2021-01-01   # IBKR automatisch abrufen → data/private/ibkr/
-npm run relay   # lokales Relay für den IBKR-Abruf aus der Web-App (http://localhost:8787)
+SNAPTRADE_CLIENT_ID=… SNAPTRADE_CONSUMER_KEY=… npm run sync -- --snaptrade   # SnapTrade Personal → data/private/snaptrade/
+npm run relay   # lokales Relay für den Abruf aus der Web-App (IBKR und SnapTrade, http://localhost:8787)
 ```
 
 IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.
@@ -129,6 +131,7 @@ Trade-Republic-Export: App → Profil → Kontoauszüge → Transaktionsexport, 
 - **DEGIRO, Format:** DEGIRO dokumentiert die CSV-Formate nicht. Das Layout ist über Open-Source-Parser belegt ([libdegiro](https://github.com/nyg/libdegiro) für die Kontoübersicht in fünf Sprachen, [degiro-portfolio](https://github.com/wirrike/degiro-portfolio) für die englischen Transaktionen). Die App erkennt beide Dateien am Spaltenlayout (17 bzw. 12 Spalten, zwei Spalten ohne Namen) und ordnet nach Spaltenposition zu, auch bei Kopfzeilen in anderer Sprache. Eine echte deutsche Transaktionsdatei lag nicht vor. Zahlen: Kommen Komma und Punkt vor, ist das letzte davon das Dezimalzeichen; ein einzelnes Trennzeichen gilt als Dezimalzeichen.
 - **DEGIRO, Fremdwährung:** Mit AutoFX (Gebühr in der Spalte „AutoFX Fee“) tauscht DEGIRO beim Handel tatsächlich in EUR; dann zählt der EUR-Betrag aus dem Export (Rz 6201c, tatsächliche Konvertierung). Ohne AutoFX-Gebühr bleibt das Geld in Fremdwährung, dann rechnet die App zum EZB-Kurs am Handelstag wie bei IBKR. Annahme, offene Frage.
 - **DEGIRO, Kontoübersicht:** Dividende und Dividendensteuer werden je ISIN, Wertstellungstag und Währung zusammengeführt; Zufluss ist der Wertstellungstag. Fondsausschüttung und Kapitalrückzahlung werden wie bei Trade Republic nicht berechnet. Guthabenzinsen der flatexDEGIRO Bank zählen wie Zinsen aus Geldeinlagen (KZ 861, Annahme), Sollzinsen sind ohne Bedeutung. Käufe und Verkäufe kommen nur aus der Datei „Transaktionen“. Unbekannte Buchungen zu einem Wertpapier (z. B. Split) werden gemeldet, spätere Verkäufe dieser Position nicht gerechnet. Optionen und Futures (ohne ISIN) rechnet die App bei DEGIRO noch nicht. Ob ein Wertpapier ein Fonds/ETF ist, steht in den Transaktionen nicht.
+- **SnapTrade:** Kurswert = Stück × Kurs laut SnapTrade, Spesen getrennt; Beträge in EUR zählen wie geliefert (auch nach automatischem Umtausch des Brokers), Fremdwährung zum EZB-Kurs. Dividende = Bruttobetrag, Quellensteuer als Buchung TAX am selben Tag (Annahme). Ohne ISIN in der Beschreibung ist die Kennung die FIGI-Klasse; Dividenden ohne ISIN werden nicht berechnet (Quellenstaat unbekannt). Die Qualität hängt davon ab, was der jeweilige Broker an SnapTrade liefert; vor der Abgabe mit dem Export des Brokers abgleichen.
 - **Tag ohne EZB-Kurs** (Wochenende, Feiertag): Eine offizielle Regel dafür ist nicht bekannt (EStR 2000 Rz 6201c nennt nur den Zuflusszeitpunkt). Die Dividende wird als „nicht berechnet“ gemeldet, es wird kein Kurs vom Vortag genommen.
 
 ## Daten

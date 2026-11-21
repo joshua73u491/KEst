@@ -142,6 +142,7 @@ code{font-size:13px;overflow-wrap:anywhere}
 .sync .entryForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
 .sync .entryForm label.check{flex-direction:row;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
 .sync code{font-size:13px}
+.syncHead{font:600 15px/1.3 Inter,sans-serif;margin:16px 0 4px}
 .entryForm label.check{flex-direction:row;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
 .entryForm label.check input{min-height:auto;width:20px;height:20px;accent-color:var(--green)}
 .ocResult{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--mist)}
@@ -200,7 +201,7 @@ ul.check{margin:0;padding-left:20px}
     <div class="import">
       <div id="drop">
         <label class="btn" for="file">Datei wählen</label>
-        <input id="file" type="file" multiple accept=".csv,.xml,text/csv,text/xml,application/xml">
+        <input id="file" type="file" multiple accept=".csv,.xml,.json,text/csv,text/xml,application/xml,application/json">
         <span id="source"></span>
       </div>
       <button class="btn ghost" id="sample" type="button">Beispieldaten zeigen</button>
@@ -222,8 +223,8 @@ ul.check{margin:0;padding-left:20px}
       <p class="priv" id="storeNote"></p>
       <ul id="fileList"></ul>
       <details class="sync" id="syncBox">
-        <summary>Automatisch von IBKR abrufen</summary>
-        <p class="sub">IBKR stellt die Flex Query über den offiziellen Flex Web Service bereit, nur lesend. Du brauchst das Token aus dem Client Portal (Reporting → Flex Queries → Flex Web Service Configuration) und die Query-ID deiner Activity Flex Query. IBKR erlaubt keine Abrufe direkt aus Webseiten; deshalb läuft der Abruf über ein Relay, z. B. lokal mit <code>npm run relay</code>. Das Token liegt nur in diesem Browser und ist nicht im Backup.</p>
+        <summary>Automatisch abrufen (IBKR, SnapTrade)</summary>
+        <p class="sub">IBKR stellt die Flex Query über den offiziellen Flex Web Service bereit, nur lesend. Du brauchst das Token aus dem Client Portal (Reporting → Flex Queries → Flex Web Service Configuration) und die Query-ID deiner Activity Flex Query. IBKR erlaubt keine Abrufe direkt aus Webseiten; deshalb läuft der Abruf über ein Relay, z. B. lokal mit <code>npm run relay</code>. Token und Schlüssel liegen nur in diesem Browser und sind nicht im Backup.</p>
         <form id="syncForm" class="entryForm" novalidate>
           <label>Token <input id="syncToken" type="password" autocomplete="off" spellcheck="false"></label>
           <label>Query-ID <input id="syncQuery" type="text" inputmode="numeric" autocomplete="off"></label>
@@ -231,11 +232,21 @@ ul.check{margin:0;padding-left:20px}
           <label>Relay-Adresse <input id="syncRelay" type="url" placeholder="http://localhost:8787"></label>
           <label class="wide check"><input id="syncAuto" type="checkbox"> Beim Öffnen automatisch abrufen (höchstens einmal am Tag)</label>
           <div class="wide storeActions">
-            <button class="btn" type="submit">Jetzt abrufen</button>
-            <button class="btn ghost danger" id="syncForget" type="button">Zugangsdaten löschen</button>
+            <button class="btn" type="submit">Von IBKR abrufen</button>
           </div>
         </form>
         <p class="small" id="syncStatus" role="status"></p>
+        <h3 class="syncHead">SnapTrade (DEGIRO, Trading 212 und weitere)</h3>
+        <p class="sub">Mit einem kostenlosen eigenen Konto bei SnapTrade (SnapTrade Personal, US-Dienstleister): Verbinde dort deine Broker, erstelle im Dashboard unter „API Key“ einen Personal API Key und trage Client ID und Consumer Key hier ein. Der Abruf läuft ebenfalls über das Relay (Adresse oben). SnapTrade liefert keine ISIN; steht sie nicht in der Buchung, rechnet die App Dividenden nicht und meldet das.</p>
+        <form id="snapForm" class="entryForm" novalidate>
+          <label>Client ID <input id="snapClientId" type="text" autocomplete="off" spellcheck="false"></label>
+          <label>Consumer Key <input id="snapConsumerKey" type="password" autocomplete="off" spellcheck="false"></label>
+          <div class="wide storeActions">
+            <button class="btn" type="submit">Von SnapTrade abrufen</button>
+            <button class="btn ghost danger" id="syncForget" type="button">Alle Zugangsdaten löschen</button>
+          </div>
+        </form>
+        <p class="small" id="snapStatus" role="status"></p>
       </details>
       <p class="priv">Mehrere Exporte und Broker werden zusammengeführt; Buchungen, die in mehreren Dateien vorkommen, zählen nur einmal. Das Backup enthält deine Exportdateien vollständig, bei Trade Republic auch Kartenzahlungen und Überweisungen, sowie deine Rücklagen-Einträge. Bewahre es sicher auf.</p>
     </div>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { syncViaRelay } from "../src/sync/webSync.js";
+import { syncSnapTradeViaRelay, syncViaRelay } from "../src/sync/webSync.js";
 
 /** Abruf aus der Web-App über das Relay: je Fenster ein POST, Pausen wegen der Grenzen von IBKR, klare Fehler. */
 
@@ -51,5 +51,20 @@ describe("Abruf über das Relay", () => {
     await expect(syncViaRelay({ relay: "", token: "1", queryId: "42", from: "2026-01-01", to: "2026-11-21" }, f)).rejects.toThrow(/Relay/);
     await expect(syncViaRelay({ relay: "ftp://x", token: "1", queryId: "42", from: "2026-01-01", to: "2026-11-21" }, f)).rejects.toThrow(/Relay/);
     expect(f.calls).toEqual([]);
+  });
+});
+
+describe("SnapTrade über das Relay", () => {
+  test("schickt Client ID und Consumer Key an /snaptrade und liefert den Schnappschuss", async () => {
+    const f = fakeFetch([ok('{"source":"snaptrade","version":1,"fetchedAt":"x","accounts":[],"activities":{}}')]);
+    const text = await syncSnapTradeViaRelay({ relay: "http://localhost:8787", clientId: " C ", consumerKey: "K" }, f);
+    expect(f.calls).toEqual([{ url: "http://localhost:8787/snaptrade", body: { clientId: "C", consumerKey: "K" } }]);
+    expect(JSON.parse(text)).toMatchObject({ source: "snaptrade" });
+  });
+
+  test("ohne Schlüssel kein Abruf; Fehler des Relays kommen durch", async () => {
+    const f = fakeFetch([err(502, { code: "snaptrade", message: "SnapTrade lehnt die Anmeldung ab." })]);
+    await expect(syncSnapTradeViaRelay({ relay: "http://localhost:8787", clientId: "", consumerKey: "" }, f)).rejects.toThrow(/Client ID/);
+    await expect(syncSnapTradeViaRelay({ relay: "http://localhost:8787", clientId: "C", consumerKey: "K" }, f)).rejects.toThrow("SnapTrade lehnt die Anmeldung ab.");
   });
 });
