@@ -39,6 +39,8 @@ Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). P
 
 **Installierbare Web-App:** `npm run build:web` erzeugt neben `dist/kest-app.html` den Ordner `dist/pwa/` für statisches Hosting mit HTTPS. Die App lässt sich installieren und läuft nach dem ersten Besuch offline. Sie lädt keine Schriften von Google, und eine Content-Security-Policy erlaubt nur das eigene Skript und die EZB-Datenschnittstelle. Anleitung und offene Entscheidungen: `docs/HOSTING.md`.
 
+**Gate 3:** Testanleitung für die Testgruppe in `docs/TESTGRUPPE.md`.
+
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
 **Verkaufs-Simulator:** Position wählen, Stückzahl und Preis je Stück in EUR eingeben. Die App rechnet den Gewinn oder Verlust mit dem gleitenden Durchschnittspreis und zeigt die Steuer des Jahres bis heute ohne und mit dem Verkauf (alle Töpfe, Verlustausgleich und Quellensteuer inklusive) sowie das Soll vorher und nachher. Bei Trade Republic nach der Umstellung auf steuereinfach zeigt sie, dass der Verkauf endbesteuert wäre. Kurse ruft die App nicht ab; der Preis kommt vom Nutzer. Optionen und Futures simuliert sie noch nicht.
