@@ -53,4 +53,41 @@ export async function saveHistory(history: History): Promise<void> {
 
 export async function clearHistory(): Promise<void> {
   await run("readwrite", (s) => s.delete(KEY));
+  await run("readwrite", (s) => s.delete(FLEX_KEY));
+}
+
+/**
+ * Zugangsdaten für den automatischen IBKR-Abruf. Getrennt von der Historie gespeichert und bewusst **nicht** im
+ * Backup: Das Token erlaubt das Lesen aller Berichte des Kontos.
+ */
+export interface FlexSettings {
+  token: string;
+  queryId: string;
+  /** JJJJ-MM-TT, ab dem beim ersten Abruf geladen wird */
+  since: string;
+  relay: string;
+  /** beim Öffnen höchstens einmal am Tag abrufen */
+  auto: boolean;
+  /** JJJJ-MM-TT des letzten erfolgreichen Abrufs */
+  lastSync: string;
+}
+
+const FLEX_KEY = "ibkr-flex";
+
+export async function loadFlexSettings(): Promise<FlexSettings | null> {
+  const v = await run<unknown>("readonly", (s) => s.get(FLEX_KEY));
+  if (typeof v !== "object" || v === null) return null;
+  const x = v as Partial<FlexSettings>;
+  return {
+    token: typeof x.token === "string" ? x.token : "",
+    queryId: typeof x.queryId === "string" ? x.queryId : "",
+    since: typeof x.since === "string" ? x.since : "",
+    relay: typeof x.relay === "string" ? x.relay : "",
+    auto: x.auto === true,
+    lastSync: typeof x.lastSync === "string" ? x.lastSync : "",
+  };
+}
+
+export async function saveFlexSettings(s: FlexSettings): Promise<void> {
+  await run("readwrite", (st) => st.put({ ...s }, FLEX_KEY));
 }

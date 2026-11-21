@@ -136,6 +136,12 @@ code{font-size:13px;overflow-wrap:anywhere}
 .invForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
 .link.ok{color:var(--green)}
 .formError{color:var(--loss);font-size:14px;margin:8px 0 0}
+.sync{margin-top:14px;border:1.5px solid var(--line);border-radius:12px;padding:10px 14px}
+.sync summary{cursor:pointer;font-weight:600;min-height:32px;display:flex;align-items:center}
+.sync input{font:16px Inter,sans-serif;min-height:44px;border-radius:10px;border:1.5px solid var(--line);padding:0 12px;background:var(--panel);color:var(--ink);color-scheme:inherit}
+.sync .entryForm label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--soft)}
+.sync .entryForm label.check{flex-direction:row;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
+.sync code{font-size:13px}
 .entryForm label.check{flex-direction:row;align-items:center;gap:8px;font-size:15px;color:var(--ink)}
 .entryForm label.check input{min-height:auto;width:20px;height:20px;accent-color:var(--green)}
 .ocResult{margin:12px 0 0;padding:12px 14px;border-radius:10px;background:var(--mist)}
@@ -215,6 +221,22 @@ ul.check{margin:0;padding-left:20px}
       </div>
       <p class="priv" id="storeNote"></p>
       <ul id="fileList"></ul>
+      <details class="sync" id="syncBox">
+        <summary>Automatisch von IBKR abrufen</summary>
+        <p class="sub">IBKR stellt die Flex Query über den offiziellen Flex Web Service bereit, nur lesend. Du brauchst das Token aus dem Client Portal (Reporting → Flex Queries → Flex Web Service Configuration) und die Query-ID deiner Activity Flex Query. IBKR erlaubt keine Abrufe direkt aus Webseiten; deshalb läuft der Abruf über ein Relay, z. B. lokal mit <code>npm run relay</code>. Das Token liegt nur in diesem Browser und ist nicht im Backup.</p>
+        <form id="syncForm" class="entryForm" novalidate>
+          <label>Token <input id="syncToken" type="password" autocomplete="off" spellcheck="false"></label>
+          <label>Query-ID <input id="syncQuery" type="text" inputmode="numeric" autocomplete="off"></label>
+          <label>Erster Abruf ab <input id="syncSince" type="date"></label>
+          <label>Relay-Adresse <input id="syncRelay" type="url" placeholder="http://localhost:8787"></label>
+          <label class="wide check"><input id="syncAuto" type="checkbox"> Beim Öffnen automatisch abrufen (höchstens einmal am Tag)</label>
+          <div class="wide storeActions">
+            <button class="btn" type="submit">Jetzt abrufen</button>
+            <button class="btn ghost danger" id="syncForget" type="button">Zugangsdaten löschen</button>
+          </div>
+        </form>
+        <p class="small" id="syncStatus" role="status"></p>
+      </details>
       <p class="priv">Mehrere Exporte und Broker werden zusammengeführt; Buchungen, die in mehreren Dateien vorkommen, zählen nur einmal. Das Backup enthält deine Exportdateien vollständig, bei Trade Republic auch Kartenzahlungen und Überweisungen, sowie deine Rücklagen-Einträge. Bewahre es sicher auf.</p>
     </div>
     <div id="ratesBox" hidden>

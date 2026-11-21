@@ -9,7 +9,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "report": "tsx src/cli/report.ts",
-    "build:web": "tsx scripts/build-web.ts"
+    "build:web": "tsx scripts/build-web.ts",
+    "sync": "tsx src/cli/sync.ts",
+    "relay": "tsx scripts/relay.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
