@@ -26,6 +26,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/simulator.ts` | Verkaufs-Simulator (Gewinn mit gleitendem Durchschnitt, Steuer des Jahres ohne und mit dem Verkauf, Soll vorher und nachher) und Kauf-Check (Guthaben nach Abzug der Rücklage) |
 | `src/e1kvReport.ts`, `src/rules.ts` | E1kv-Bericht als PDF (ohne Bibliothek, im Browser) und CSV (Excel, Strichpunkt): Kennzahlen, Steuer und Soll, Einstellungen, Belegliste mit Fundstellen, nicht Berechnetes, Regelversion, Hinweis „Berechnungstool, keine Steuerberatung“ |
 | `src/pwa/files.ts`, `src/pwa/png.ts`, `scripts/build-web.ts` | Installierbare Web-App: Manifest, Service Worker (offline), Symbole als PNG/SVG, Content-Security-Policy, Header für statisches Hosting |
+| `src/sync/ibkrFlexService.ts`, `src/sync/relay.ts`, `src/sync/webSync.ts` | Automatischer IBKR-Abruf über den Flex Web Service (Token und Query-ID): Kern, zustandsloses Relay für die Web-App (IBKR erlaubt kein CORS), Abruf aus der Web-App |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -40,6 +41,8 @@ Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). P
 **Installierbare Web-App:** `npm run build:web` erzeugt neben `dist/kest-app.html` den Ordner `dist/pwa/` für statisches Hosting mit HTTPS. Die App lässt sich installieren und läuft nach dem ersten Besuch offline. Sie lädt keine Schriften von Google, und eine Content-Security-Policy erlaubt nur das eigene Skript und die EZB-Datenschnittstelle. Anleitung und offene Entscheidungen: `docs/HOSTING.md`.
 
 **Gate 3:** Testanleitung für die Testgruppe in `docs/TESTGRUPPE.md`.
+
+**Automatischer Abruf (Phase 4, auf Joshuas Wunsch):** IBKR über den offiziellen Flex Web Service. Auf der Kommandozeile `npm run sync`, in der Web-App über ein Relay (`npm run relay`, lokal). DEGIRO und andere wären über SnapTrade möglich (Entscheidung offen), Trade Republic bleibt beim CSV-Export. Details und Entscheidungen: `docs/AUTOMATISCHER-ABRUF.md`.
 
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
@@ -76,6 +79,8 @@ npm run report -- data/private/<Export>.csv 2026 --ezb-kurse <eurofxref-hist.csv
 npm run report -- data/private/<Flex>.xml 2026 --ezb-kurse <eurofxref-hist.csv> [--ibkr-zinsen 861]   # IBKR
 npm run report -- data/private/a.csv data/private/b.csv data/private/ib.xml 2026   # mehrere Dateien zusammenführen
 npm run report -- data/private/<Export>.csv 2026 --pdf data/private/e1kv.pdf --csv data/private/e1kv.csv   # E1kv-Bericht
+IBKR_FLEX_TOKEN=… npm run sync -- --query <Query-ID> --seit 2021-01-01   # IBKR automatisch abrufen → data/private/ibkr/
+npm run relay   # lokales Relay für den IBKR-Abruf aus der Web-App (http://localhost:8787)
 ```
 
 IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.

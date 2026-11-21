@@ -29,7 +29,9 @@ console.log(`dist/kest-app.html (${Math.round(html.length / 1024)} KB)`);
 // Inline-Skript genau so, wie es in der Datei steht (inklusive Zeilenumbrüchen), für die CSP-Prüfsumme
 const inline = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
 if (inline === undefined) throw new Error("Inline-Skript nicht gefunden");
-const index = pwaIndexHtml(html, inline);
+// Relays für den automatischen IBKR-Abruf: lokal immer, weitere über KEST_RELAY_ORIGINS (durch Komma getrennt)
+const relays = ["http://localhost:8787", ...(process.env.KEST_RELAY_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean)];
+const index = pwaIndexHtml(html, inline, relays);
 const version = createHash("sha256").update(index).digest("hex").slice(0, 12);
 const files = ["./", "index.html", "manifest.webmanifest", ...ICONS];
 writeFileSync("dist/pwa/index.html", index);
@@ -39,5 +41,5 @@ writeFileSync("dist/pwa/icon.svg", iconSvg());
 writeFileSync("dist/pwa/icon-192.png", encodePng(192, 192, drawIcon(192, false)));
 writeFileSync("dist/pwa/icon-512.png", encodePng(512, 512, drawIcon(512, false)));
 writeFileSync("dist/pwa/icon-maskable-512.png", encodePng(512, 512, drawIcon(512, true)));
-writeFileSync("dist/pwa/_headers", headersFile(scriptHash(inline)));
+writeFileSync("dist/pwa/_headers", headersFile(scriptHash(inline), relays));
 console.log(`dist/pwa/ (Version ${version}, ${files.length} Dateien im Offline-Cache)`);

@@ -17,17 +17,17 @@ export function scriptHash(script: string): string {
 }
 
 /**
- * Content-Security-Policy: Skripte nur mit passender Prüfsumme, Verbindungen nur zur eigenen Seite und zur
- * EZB-Datenschnittstelle (Wechselkurse), keine Einbettung in fremde Seiten.
+ * Content-Security-Policy: Skripte nur mit passender Prüfsumme, Verbindungen nur zur eigenen Seite, zur
+ * EZB-Datenschnittstelle (Wechselkurse) und zu den angegebenen Relays für den IBKR-Abruf, keine Einbettung in fremde Seiten.
  */
-export function cspFor(hash: string, withFrameAncestors = false): string {
+export function cspFor(hash: string, withFrameAncestors = false, relays: readonly string[] = []): string {
   return [
     "default-src 'self'",
     `script-src 'self' '${hash}'`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self'",
-    "connect-src 'self' https://data-api.ecb.europa.eu",
+    `connect-src 'self' https://data-api.ecb.europa.eu${relays.map((r) => ` ${r}`).join("")}`,
     "manifest-src 'self'",
     "worker-src 'self'",
     "object-src 'none'",
@@ -41,13 +41,13 @@ export function cspFor(hash: string, withFrameAncestors = false): string {
  * Startseite der installierbaren App aus der fertigen HTML-Datei: ohne Schriften von Google (beim Öffnen würde sonst
  * die IP-Adresse an Google gehen; die App fällt auf Systemschriften zurück), mit Manifest, Symbolen und CSP.
  */
-export function pwaIndexHtml(html: string, inlineScript: string): string {
+export function pwaIndexHtml(html: string, inlineScript: string, relays: readonly string[] = []): string {
   const head = [
     '<link rel="manifest" href="manifest.webmanifest">',
     `<meta name="theme-color" content="${THEME_COLOR}">`,
     '<link rel="icon" href="icon.svg" type="image/svg+xml">',
     '<link rel="apple-touch-icon" href="icon-192.png">',
-    `<meta http-equiv="Content-Security-Policy" content="${cspFor(scriptHash(inlineScript))}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${cspFor(scriptHash(inlineScript), false, relays)}">`,
   ].join("\n");
   return html.replace(/<link[^>]*fonts\.(?:googleapis|gstatic)\.com[^>]*>\r?\n?/g, "").replace("</head>", `${head}\n</head>`);
 }
@@ -127,10 +127,10 @@ self.addEventListener("fetch", (e) => {
 }
 
 /** Header für statische Hosts, die eine `_headers`-Datei lesen (z. B. Netlify, Cloudflare Pages). */
-export function headersFile(hash: string): string {
+export function headersFile(hash: string, relays: readonly string[] = []): string {
   return [
     "/*",
-    `  Content-Security-Policy: ${cspFor(hash, true)}`,
+    `  Content-Security-Policy: ${cspFor(hash, true, relays)}`,
     "  X-Content-Type-Options: nosniff",
     "  Referrer-Policy: no-referrer",
     "  Permissions-Policy: camera=(), microphone=(), geolocation=()",

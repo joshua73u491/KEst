@@ -32,6 +32,12 @@ describe("Startseite der installierbaren Web-App", () => {
     expect(csp).toContain("object-src 'none'");
   });
 
+  test("Relays für den IBKR-Abruf werden in connect-src ergänzt", () => {
+    expect(cspFor("sha256-abc", false, ["http://localhost:8787", "https://relay.example"])).toContain(
+      "connect-src 'self' https://data-api.ecb.europa.eu http://localhost:8787 https://relay.example",
+    );
+  });
+
   test("Prüfsumme nach CSP-Regeln (SHA-256, Base64)", () => {
     expect(scriptHash("")).toBe("sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=");
   });

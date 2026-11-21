@@ -28,7 +28,8 @@ import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
 import { initSetupWizard } from "./setupWizard.js";
-import { clearHistory, loadHistory, saveHistory } from "./storage.js";
+import { clearHistory, loadFlexSettings, loadHistory, saveFlexSettings, saveHistory, type FlexSettings } from "./storage.js";
+import { syncViaRelay } from "../sync/webSync.js";
 
 interface State {
   /** alle gespeicherten Dateien und Einstellungen */
@@ -253,14 +254,16 @@ function readBackup(file: File) {
 
 function clearAll() {
   const ok = window.confirm(
-    "Alle gespeicherten Dateien, Einstellungen und Rücklagen-Einträge in diesem Browser löschen? Das lässt sich nicht rückgängig machen. Sichere vorher ein Backup, wenn du die Daten noch brauchst.",
+    "Alle gespeicherten Dateien, Einstellungen, Rücklagen-Einträge und IBKR-Zugangsdaten in diesem Browser löschen? Das lässt sich nicht rückgängig machen. Sichere vorher ein Backup, wenn du die Daten noch brauchst.",
   );
   if (!ok) return;
   state.history = emptyHistory();
   state.mode = "history";
   state.notice = "Alle gespeicherten Daten in diesem Browser wurden gelöscht.";
   applySettingsToControls();
-  if (state.storageOk) clearHistory().catch(() => undefined);
+  if (state.storageOk) clearHistory().catch(() => undefined); // löscht auch die IBKR-Zugangsdaten
+  flex = { ...EMPTY_FLEX };
+  applyFlexToControls();
   refresh();
 }
 
@@ -651,6 +654,86 @@ function runOrderCheck() {
   }
 }
 
+// ---------------------------------------------------------------- Automatischer IBKR-Abruf (Phase 4, Schritt 4.1)
+
+const EMPTY_FLEX: FlexSettings = { token: "", queryId: "", since: "", relay: "http://localhost:8787", auto: false, lastSync: "" };
+let flex: FlexSettings = { ...EMPTY_FLEX };
+let syncing = false;
+const ROLLING_NAME = "IBKR automatisch (letzte 365 Tage).xml";
+
+function applyFlexToControls() {
+  $<HTMLInputElement>("syncToken").value = flex.token;
+  $<HTMLInputElement>("syncQuery").value = flex.queryId;
+  $<HTMLInputElement>("syncSince").value = flex.since;
+  $<HTMLInputElement>("syncRelay").value = flex.relay;
+  $<HTMLInputElement>("syncAuto").checked = flex.auto;
+  if (flex.token) $<HTMLDetailsElement>("syncBox").open = true;
+  if (flex.lastSync) $("syncStatus").textContent = `Letzter erfolgreicher Abruf: ${deDate(flex.lastSync)}.`;
+}
+
+function readFlexControls(): FlexSettings {
+  return {
+    token: $<HTMLInputElement>("syncToken").value.trim(),
+    queryId: $<HTMLInputElement>("syncQuery").value.trim(),
+    since: $<HTMLInputElement>("syncSince").value,
+    relay: $<HTMLInputElement>("syncRelay").value.trim(),
+    auto: $<HTMLInputElement>("syncAuto").checked,
+    lastSync: flex.lastSync,
+  };
+}
+
+const minusDays = (iso: string, days: number) => new Date(Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)) - days)).toISOString().slice(0, 10);
+
+/**
+ * Ruft die Flex Query über das Relay ab und speichert sie wie eine importierte Datei. Erster Abruf: ab „Erster Abruf ab“
+ * in Fenstern von 365 Tagen. Danach: die letzten 365 Tage als laufende Datei, die bei jedem Abruf ersetzt wird.
+ */
+async function runSync(mode: "full" | "rolling") {
+  if (syncing) return;
+  const status = $("syncStatus");
+  if (!flex.token || !flex.queryId) {
+    status.textContent = "Bitte Token und Query-ID eintragen.";
+    return;
+  }
+  syncing = true;
+  const now = today();
+  const from = mode === "full" ? flex.since || `${Number(now.slice(0, 4)) - 1}-01-01` : minusDays(now, 364);
+  status.textContent = `Rufe bei IBKR ab (${deDate(from)} bis ${deDate(now)}) …`;
+  try {
+    const parts = await syncViaRelay(
+      { relay: flex.relay, token: flex.token, queryId: flex.queryId, from, to: now },
+      {
+        fetchFn: (url, init) => fetch(url, init),
+        sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+        onProgress: (done, total) => {
+          if (total > 1) status.textContent = `${done} von ${total} Zeiträumen geladen. IBKR erlaubt nur wenige Abrufe je Minute, bitte warten …`;
+        },
+      },
+    );
+    let history = state.history;
+    let added = 0;
+    for (const p of parts) {
+      const name = mode === "rolling" ? ROLLING_NAME : `IBKR automatisch ${p.from} bis ${p.to}.xml`;
+      if (mode === "rolling") history = { ...history, files: history.files.filter((f) => f.name !== ROLLING_NAME) };
+      const r = addFile(history, name, p.xml, new Date().toISOString(), newId()); // prüft die Flex Query wie beim Datei-Import
+      history = r.history;
+      if (r.added) added++;
+    }
+    state.history = history;
+    state.mode = "history";
+    state.error = "";
+    flex = { ...flex, lastSync: now };
+    saveFlexSettings(flex).catch(() => undefined);
+    persist();
+    refresh();
+    status.textContent = `Abruf am ${deDate(now)} erfolgreich: ${parts.length} ${parts.length === 1 ? "Zeitraum" : "Zeiträume"}, ${added} ${added === 1 ? "Datei" : "Dateien"} gespeichert.`;
+  } catch (e) {
+    status.textContent = `Abruf nicht möglich: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    syncing = false;
+  }
+}
+
 function readInvestment(): ReserveInvestment | null {
   const kind = $<HTMLSelectElement>("invKind").value as InvestmentKind | "";
   if (!kind) return null;
@@ -988,6 +1071,25 @@ function render() {
     runOrderCheck();
   });
 
+  // Automatischer IBKR-Abruf (Schritt 4.1)
+  $<HTMLFormElement>("syncForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    flex = readFlexControls();
+    saveFlexSettings(flex).catch(() => undefined);
+    void runSync(flex.lastSync ? "rolling" : "full");
+  });
+  $<HTMLInputElement>("syncAuto").addEventListener("change", () => {
+    flex = readFlexControls();
+    saveFlexSettings(flex).catch(() => undefined);
+  });
+  $("syncForget").addEventListener("click", () => {
+    if (!window.confirm("Token, Query-ID und Relay-Adresse in diesem Browser löschen? Die abgerufenen Dateien bleiben gespeichert.")) return;
+    flex = { ...EMPTY_FLEX };
+    saveFlexSettings(flex).catch(() => undefined);
+    applyFlexToControls();
+    $("syncStatus").textContent = "Zugangsdaten gelöscht.";
+  });
+
   // Installierbare Web-App (Schritt 3.5): Service Worker nur in der gehosteten Fassung mit Manifest, nicht in der Einzeldatei
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     navigator.serviceWorker.register("sw.js").catch(() => undefined);
@@ -1025,6 +1127,16 @@ function render() {
       applySettingsToControls();
       refresh();
       if (history.files.length === 0 && !history.settings.setupDoneAt) wizard.open();
+      loadFlexSettings().then(
+        (s) => {
+          if (!s) return;
+          flex = s;
+          applyFlexToControls();
+          // automatisch beim Öffnen, höchstens einmal am Tag
+          if (s.auto && s.token && s.queryId && s.relay && s.lastSync !== today()) void runSync(s.lastSync ? "rolling" : "full");
+        },
+        () => undefined,
+      );
     },
     (e: unknown) => {
       state.storageOk = false;
