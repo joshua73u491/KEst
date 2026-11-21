@@ -11,11 +11,14 @@
     "report": "tsx src/cli/report.ts",
     "build:web": "tsx scripts/build-web.ts",
     "sync": "tsx src/cli/sync.ts",
-    "relay": "tsx scripts/relay.ts"
+    "relay": "tsx scripts/relay.ts",
+    "mcp": "tsx src/mcp/server.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
-    "decimal.js": "^10.6.0"
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "decimal.js": "^10.6.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

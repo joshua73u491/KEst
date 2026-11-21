@@ -28,6 +28,7 @@ Produktplan: https://claude.ai/artifact/Pz2JTUN4Bq72zbGKMx254i
 | `src/pwa/files.ts`, `src/pwa/png.ts`, `scripts/build-web.ts` | Installierbare Web-App: Manifest, Service Worker (offline), Symbole als PNG/SVG, Content-Security-Policy, Header für statisches Hosting |
 | `src/sync/ibkrFlexService.ts`, `src/sync/relay.ts`, `src/sync/webSync.ts` | Automatischer IBKR-Abruf über den Flex Web Service (Token und Query-ID): Kern, zustandsloses Relay für die Web-App (IBKR erlaubt kein CORS), Abruf aus der Web-App |
 | `src/sync/snaptrade.ts`, `src/import/snaptrade.ts` | SnapTrade Personal: signierter Abruf aller Anlagekonten und Aktivitäten, Schnappschuss als JSON, Zuordnung zum Datenmodell |
+| `src/mcp/tools.ts`, `src/mcp/server.ts` | MCP-Add-on: dieselben Funktionen als Werkzeuge für Claude, lokaler Server über stdio (`npm run mcp`) |
 | `src/reminders.ts` | Erinnerungen mit dem Stichtag als Eingabe: Fehlbetrag in der Rücklage, letzter Import älter als 30 Tage, Frist der Steuererklärung, Verlustausgleich im November/Dezember |
 | `src/ledger.ts` | Rücklagen-Ledger: Ist-Einträge (Datum, Marktwert, Ort, Notiz), bezahlte Jahre, Soll gegen Ist mit Freigabe erst nach dem 31.12., Kriterien-Check der gewählten Anlage |
 | `src/import/tradeRepublic.ts` | Import des Trade-Republic-Transaktionsexports (CSV, seit April 2026) |
@@ -44,6 +45,8 @@ Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). P
 **Gate 3:** Testanleitung für die Testgruppe in `docs/TESTGRUPPE.md`.
 
 **Automatischer Abruf (Phase 4, auf Joshuas Wunsch):** IBKR über den offiziellen Flex Web Service. Auf der Kommandozeile `npm run sync`, in der Web-App über ein Relay (`npm run relay`, lokal). DEGIRO, Trading 212 und weitere über SnapTrade Personal (eigenes kostenloses Konto des Nutzers, `npm run sync -- --snaptrade` oder Relay). Trade Republic bleibt beim CSV-Export. Details und Entscheidungen: `docs/AUTOMATISCHER-ABRUF.md`.
+
+**MCP-Add-on (Phase 5):** `npm run mcp` startet einen lokalen MCP-Server mit den Funktionen der App als Werkzeuge für Claude (Import, Steuer, Rücklage, Simulator, Kauf-Check, Prüfassistent, Bericht, Einstellungen, automatischer Abruf). Die Historie liegt im Backup-Format der Web-App. Einrichtung: `docs/MCP.md`.
 
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
@@ -82,6 +85,7 @@ npm run report -- data/private/a.csv data/private/b.csv data/private/ib.xml 2026
 npm run report -- data/private/<Export>.csv 2026 --pdf data/private/e1kv.pdf --csv data/private/e1kv.csv   # E1kv-Bericht
 IBKR_FLEX_TOKEN=… npm run sync -- --query <Query-ID> --seit 2021-01-01   # IBKR automatisch abrufen → data/private/ibkr/
 SNAPTRADE_CLIENT_ID=… SNAPTRADE_CONSUMER_KEY=… npm run sync -- --snaptrade   # SnapTrade Personal → data/private/snaptrade/
+npm run mcp     # MCP-Add-on für Claude (stdio), Einrichtung in docs/MCP.md
 npm run relay   # lokales Relay für den Abruf aus der Web-App (IBKR und SnapTrade, http://localhost:8787)
 ```
 
