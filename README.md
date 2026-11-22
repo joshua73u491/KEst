@@ -48,6 +48,8 @@ Phase 1 ist umgesetzt (Schritte 1.1 bis 1.5), Gate 1 freigegeben (20.11.2026). P
 
 **MCP-Add-on (Phase 5):** `npm run mcp` startet einen lokalen MCP-Server mit den Funktionen der App als Werkzeuge für Claude (Import, Steuer, Rücklage, Simulator, Kauf-Check, Prüfassistent, Bericht, Einstellungen, automatischer Abruf). Die Historie liegt im Backup-Format der Web-App. Einrichtung: `docs/MCP.md`.
 
+**Store-Apps (Schritt 6.1, auf Joshuas Wunsch):** Dieselbe Web-App als Android- und iOS-App über Capacitor 8.6 (`android/`, `ios/`, `capacitor.config.json`, Startseite aus `src/app/files.ts`). In der App öffnet „Speichern“ (Backup, PDF, CSV) das Teilen-Menü des Systems (`src/app/share.ts`); der automatische Abruf ist dort noch ausgeblendet. App-ID `at.kestruecklage.app` ist ein Platzhalter. Bauen, Voraussetzungen und was Joshua für die Stores erledigen muss: `docs/STORE-APPS.md`.
+
 **E1kv-Bericht:** In der Web-App „Bericht als PDF“ bzw. „Bericht als CSV“ beim Abschnitt „Für deine E1kv“; auf der Kommandozeile `--pdf <datei>` und `--csv <datei>`. Der Bericht nennt die Regelversion (`src/rules.ts`), die Dateien, die Einstellungen und je Buchung Kennzahl und Fundstelle (Datei, Zeile).
 
 **Verkaufs-Simulator:** Position wählen, Stückzahl und Preis je Stück in EUR eingeben. Die App rechnet den Gewinn oder Verlust mit dem gleitenden Durchschnittspreis und zeigt die Steuer des Jahres bis heute ohne und mit dem Verkauf (alle Töpfe, Verlustausgleich und Quellensteuer inklusive) sowie das Soll vorher und nachher. Bei Trade Republic nach der Umstellung auf steuereinfach zeigt sie, dass der Verkauf endbesteuert wäre. Kurse ruft die App nicht ab; der Preis kommt vom Nutzer. Optionen und Futures simuliert sie noch nicht.
@@ -87,6 +89,9 @@ IBKR_FLEX_TOKEN=… npm run sync -- --query <Query-ID> --seit 2021-01-01   # IBK
 SNAPTRADE_CLIENT_ID=… SNAPTRADE_CONSUMER_KEY=… npm run sync -- --snaptrade   # SnapTrade Personal → data/private/snaptrade/
 npm run mcp     # MCP-Add-on für Claude (stdio), Einrichtung in docs/MCP.md
 npm run relay   # lokales Relay für den Abruf aus der Web-App (IBKR und SnapTrade, http://localhost:8787)
+npm run app:sync     # Store-Apps: Web-App bauen und nach android/ und ios/ kopieren
+npm run app:apk      # Android-Debug-APK bauen (JDK 21 und Android SDK nötig, docs/STORE-APPS.md)
+npm run app:android  # Android Studio mit dem Projekt öffnen
 ```
 
 IBKR: Activity Flex Query im Format XML mit den Abschnitten Trades (Detailstufe „Executions“, Felder u. a. ISIN, Proceeds, Level of Detail), Cash Transactions und Open Positions, Datumsformat yyyyMMdd, Zeitraum so weit zurück wie möglich. Fehlt ein Abschnitt oder Feld, nennt die App es konkret.

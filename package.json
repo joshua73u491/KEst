@@ -12,15 +12,25 @@
     "build:web": "tsx scripts/build-web.ts",
     "sync": "tsx src/cli/sync.ts",
     "relay": "tsx scripts/relay.ts",
-    "mcp": "tsx src/mcp/server.ts"
+    "mcp": "tsx src/mcp/server.ts",
+    "app:sync": "npm run build:web && cap sync",
+    "app:android": "npm run app:sync && cap open android",
+    "app:apk": "npm run app:sync && cd android && gradlew assembleDebug",
+    "app:icons": "tsx scripts/app-icons.ts"
   },
   "license": "UNLICENSED",
   "dependencies": {
+    "@capacitor/android": "8.6.0",
+    "@capacitor/core": "8.6.0",
+    "@capacitor/filesystem": "8.1.5",
+    "@capacitor/ios": "8.6.0",
+    "@capacitor/share": "8.0.3",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "decimal.js": "^10.6.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.6.0",
     "@types/node": "^26.6.6",
     "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
