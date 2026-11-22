@@ -104,8 +104,11 @@ export function reserveStatus(yearSolls: YearSoll[], ledger: Ledger, today: stri
   const years = yearSolls
     .filter((y) => y.year <= todayYear && ledger.paidYears[String(y.year)] === undefined)
     .map((y) => ({ ...y, closed: y.year < todayYear }));
-  const soll = D.sum(ZERO, ...years.map((y) => y.sollEur));
-  const lockBase = D.sum(ZERO, ...years.map((y) => (y.closed ? y.sollEur : D.max(y.sollEur, y.peakEur))));
+  // Soll und Höchststand je Jahr auf Cent, wie in der Tabelle angezeigt: So gehen Summe, Überschuss, freigegebener und
+  // gesperrter Betrag in der Anzeige auf den Cent auf (sonst z. B. 14,74 € Überschuss, aber 4,17 € + 10,58 €).
+  const cents = (v: Dec) => v.toDecimalPlaces(2, D.ROUND_HALF_UP);
+  const soll = D.sum(ZERO, ...years.map((y) => cents(y.sollEur)));
+  const lockBase = D.sum(ZERO, ...years.map((y) => cents(y.closed ? y.sollEur : D.max(y.sollEur, y.peakEur))));
   const current = ledger.entries
     .map((e, i) => ({ e, i }))
     .filter(({ e }) => e.date <= today)

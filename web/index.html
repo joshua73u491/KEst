@@ -285,7 +285,7 @@ ul.check{margin:0;padding-left:20px}
         <label title="Leer lassen, wenn Trade Republic bei dir keine KESt abzieht">Steuereinfach seit <input id="since" type="date"></label>
         <label id="derivSetting" hidden title="Offene Frage an den Steuerberater: Tarif (KZ 857) oder 27,5 % (KZ 995/896)">Optionen/Futures <select id="derivTreatment"><option value="tariff">Tarif · KZ 857</option><option value="special">27,5 % · KZ 995/896</option></select></label>
         <label id="incomeSetting" hidden title="Dein geschätztes zu versteuerndes Jahreseinkommen ohne Kapitalerträge (z. B. Gehalt nach Sozialversicherung, Gewinn aus einem Betrieb). Daraus ergibt sich der Steuersatz für Optionen und Futures.">Sonstiges Einkommen <input id="otherIncome" type="number" min="0" step="100" inputmode="decimal" placeholder="z. B. 30000"> €</label>
-        <label id="kzSetting" hidden title="Offene Frage an den Steuerberater: KZ 863 (27,5 %) oder KZ 861 (25 %)">IBKR-Zinsen <select id="ibkrKz"><option value="863">KZ 863 · 27,5 %</option><option value="861">KZ 861 · 25 %</option></select></label>
+        <label id="kzSetting" hidden title="Offene Frage an den Steuerberater: KZ 863 (27,5 %) oder KZ 861 (25 %). Gilt für Zinsen auf dem Konto bei IBKR und bei Brokern über SnapTrade, nicht für DEGIRO.">Broker-Zinsen <select id="ibkrKz"><option value="863">KZ 863 · 27,5 %</option><option value="861">KZ 861 · 25 %</option></select></label>
       </div>
     </div>
     <dl id="figs"></dl>
@@ -423,7 +423,7 @@ ul.check{margin:0;padding-left:20px}
       <li>Dividenden in Fremdwährung rechnet die App mit dem EZB-Referenzkurs am Zuflusstag um. Gibt es an diesem Tag keinen Kurs, wird nicht geschätzt. Bei Käufen und Verkäufen in Fremdwährung zählt der Euro-Betrag, den Trade Republic tatsächlich umgerechnet hat.</li>
       <li>Ausschüttungen von Fonds und ETFs und Kapitalausschüttungen rechnet die App noch nicht; sie erscheinen unter „Nicht berechnet“.</li>
       <li>Optionen und Futures bei IBKR (nicht verbriefte Derivate) werden ohne freiwilligen KESt-Abzug zum Einkommensteuertarif besteuert (KZ 857). Ob stattdessen 27,5 % gelten, ist offen; die App rechnet standardmäßig mit dem Tarif und du kannst umstellen. Prämien von Stillhaltern zählen erst bei Verfall oder Glattstellung, bei Ausübung gehen sie in die Aktie ein.</li>
-      <li>IBKR: Käufe und Verkäufe in Fremdwährung werden zum EZB-Referenzkurs am Handelstag umgerechnet. Ob Zinsen auf dem IBKR-Konto in KZ 863 oder KZ 861 gehören, ist offen; die App rechnet standardmäßig mit KZ 863 und du kannst umstellen.</li>
+      <li>IBKR: Käufe und Verkäufe in Fremdwährung werden zum EZB-Referenzkurs am Handelstag umgerechnet. Ob Zinsen auf dem IBKR-Konto in KZ 863 oder KZ 861 gehören, ist offen; die App rechnet standardmäßig mit KZ 863 und du kannst unter „Broker-Zinsen“ umstellen. Die Einstellung gilt auch für Zinsen von Brokern, die du über SnapTrade abrufst (außer DEGIRO).</li>
       <li>Rücklage: Das Geld legst du selbst beiseite und trägst den Marktwert ein. Was über dem Soll liegt, gibt die App für das laufende Jahr erst nach dem 31.12. frei. Markiere ein Jahr als bezahlt, sobald du die Steuer dafür bezahlt hast; dann zählt es nicht mehr zum Soll.</li>
       <li>Steuereinfach heißt: Trade Republic zieht die KESt selbst ab und führt sie ans Finanzamt ab. Erträge ab dem angegebenen Tag zählen hier deshalb weder für die E1kv noch für die Rücklage.</li>
     </ul>

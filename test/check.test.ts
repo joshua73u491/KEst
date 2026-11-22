@@ -69,7 +69,7 @@ describe("Prüfassistent: Bestände", () => {
         severity: "info",
         code: "dust",
         text:
-          "Von BTC ist ein Rest von 1e-10 Stück übrig, vermutlich durch Rundung beim Broker. " +
+          "Von BTC ist ein Rest von 0.0000000001 Stück übrig, vermutlich durch Rundung beim Broker. " +
           "Die App führt ihn als offene Position; beim späteren Verkauf zählt er mit.",
         at: [{ line: 3 }],
       },

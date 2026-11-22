@@ -93,9 +93,9 @@ describe("Ausgabe", () => {
   test("Bericht nennt Broker-Zinsen und die gewählte Kennzahl", () => {
     const xml = ibkrXml({ cash: [ibCash("Broker Interest Received", "20260905;202000", "10.00", { currency: "EUR" })] });
     const text = formatReport(computeYear(parseIbkrFlexXml(xml), 2026));
-    expect(text).toMatch(/ {2}IBKR-Zinsen, Einstellung KZ 863 +10,00 €/);
+    expect(text).toMatch(/ {2}Broker-Zinsen, Einstellung KZ 863 +10,00 €/);
     const alt = formatReport(computeYear(parseIbkrFlexXml(xml), 2026, { brokerInterestKz: "861" }));
-    expect(alt).toMatch(/ {2}IBKR-Zinsen, Einstellung KZ 861 +10,00 €/);
+    expect(alt).toMatch(/ {2}Broker-Zinsen, Einstellung KZ 861 +10,00 €/);
   });
 
   test("Bericht nennt bei Dividenden in Fremdwährung Währung und EZB-Kurs", () => {
