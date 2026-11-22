@@ -1,0 +1,57 @@
+# Baut die Store-Apps zur Kontrolle (Schritt 6.1, docs/STORE-APPS.md):
+# - Android: Debug-APK (zum Installieren auf dem eigenen Handy), als Artefakt herunterladbar
+# - iOS: Build für den Simulator ohne Signatur. Unter Windows lässt sich keine iOS-App bauen; dafür braucht es einen Mac.
+#   Signierte Builds für den App Store brauchen Joshuas Apple-Entwicklerkonto und kommen später dazu.
+name: Store-Apps
+
+on:
+  push:
+    paths: ["src/**", "web/**", "scripts/**", "android/**", "ios/**", "capacitor.config.json", "package*.json", ".github/workflows/store-apps.yml"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:web
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug --no-daemon
+        working-directory: android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kest-ruecklage-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+  ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:web
+      - run: npx cap sync ios
+      - run: xcodebuild -version
+      - name: Build für den iOS-Simulator (ohne Signatur)
+        run: >
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug
+          -sdk iphonesimulator -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO build

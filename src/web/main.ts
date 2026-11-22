@@ -26,6 +26,7 @@ import { buildE1kvDocument, e1kvCsv, e1kvPdf } from "../e1kvReport.js";
 import { reserveTarget } from "../reserve.js";
 import { sollTimeline } from "../sollTimeline.js";
 import { computeYear, type YearOptions, type YearReport } from "../yearReport.js";
+import { isNativeApp, shareFile } from "../app/share.js";
 import { fetchEcbRates, ratesNeeded } from "./loadRates.js";
 import { initSetupWizard } from "./setupWizard.js";
 import { clearHistory, loadFlexSettings, loadHistory, saveFlexSettings, saveHistory, type FlexSettings } from "./storage.js";
@@ -210,8 +211,21 @@ function readRateFile(file: File) {
   );
 }
 
-/** Lädt Daten als Datei herunter, ohne Server: alles entsteht im Browser. */
-function download(name: string, content: BlobPart, type: string) {
+/**
+ * Lädt Daten als Datei herunter, ohne Server: alles entsteht im Browser. In der Store-App (Android/iOS) gibt es keinen
+ * Download, dort öffnet sich das Teilen-Menü des Systems (src/app/share.ts).
+ */
+function download(name: string, content: string | Uint8Array<ArrayBuffer>, type: string) {
+  if (isNativeApp()) {
+    shareFile(name, content).catch((e: unknown) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Schließt der Nutzer das Teilen-Menü, ist das kein Fehler.
+      if (/cancel/i.test(msg)) return;
+      state.error = `Die Datei ${name} konnte nicht gespeichert werden: ${msg}`;
+      render();
+    });
+    return;
+  }
   const url = URL.createObjectURL(new Blob([content], { type }));
   const a = document.createElement("a");
   a.href = url;
@@ -1149,6 +1163,17 @@ function render() {
     applyFlexToControls();
     $("syncStatus").textContent = "Zugangsdaten gelöscht.";
   });
+
+  // Store-App (Schritt 6.1): Ein Relay für den automatischen Abruf gibt es auf dem Handy nicht. Abschnitt ausblenden,
+  // statt beim Abruf einen unverständlichen Fehler zu zeigen (docs/STORE-APPS.md, „Offen“).
+  if (isNativeApp()) {
+    const box = $("syncBox");
+    const note = document.createElement("p");
+    note.className = "sub";
+    note.textContent = "Der automatische Abruf von IBKR und SnapTrade ist in der App noch nicht verfügbar. Lade die Exportdateien über „Datei wählen“.";
+    box.hidden = true; // nicht entfernen: andere Teile greifen weiter auf die Felder zu
+    box.after(note);
+  }
 
   // Installierbare Web-App (Schritt 3.5): Service Worker nur in der gehosteten Fassung mit Manifest, nicht in der Einzeldatei
   if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {

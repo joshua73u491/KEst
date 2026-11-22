@@ -1,0 +1,12 @@
+{
+  "appId": "at.kestruecklage.app",
+  "appName": "KESt-Rücklage",
+  "webDir": "dist/app",
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "always"
+  }
+}

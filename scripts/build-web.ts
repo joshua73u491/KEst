@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { build } from "esbuild";
 import { headersFile, iconSvg, ICONS, manifest, pwaIndexHtml, scriptHash, serviceWorker } from "../src/pwa/files.js";
 import { drawIcon, encodePng } from "../src/pwa/png.js";
+import { appIndexHtml } from "../src/app/files.js";
 
 const result = await build({
   entryPoints: ["src/web/main.ts"],
@@ -43,3 +44,8 @@ writeFileSync("dist/pwa/icon-512.png", encodePng(512, 512, drawIcon(512, false))
 writeFileSync("dist/pwa/icon-maskable-512.png", encodePng(512, 512, drawIcon(512, true)));
 writeFileSync("dist/pwa/_headers", headersFile(scriptHash(inline), relays));
 console.log(`dist/pwa/ (Version ${version}, ${files.length} Dateien im Offline-Cache)`);
+
+// Store-App (Android/iOS über Capacitor): Inhalt für `npx cap sync`, siehe capacitor.config.json und docs/STORE-APPS.md
+mkdirSync("dist/app", { recursive: true });
+writeFileSync("dist/app/index.html", appIndexHtml(html, inline));
+console.log("dist/app/ (Store-App, für npx cap sync)");
