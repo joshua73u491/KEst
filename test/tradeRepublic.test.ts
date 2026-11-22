@@ -132,7 +132,7 @@ describe("Trade-Republic-Import: Randfälle", () => {
     const r = parseTradeRepublicCsv(
       trCsv(trade("BUY", at, "BTC", "0.0000000001", "0.01", { asset_class: "CRYPTO" })),
     );
-    expect(r.trades[0]).toMatchObject({ quantity: "1e-10", amountEur: "0.01", kind: "crypto" });
+    expect(r.trades[0]).toMatchObject({ quantity: "0.0000000001", amountEur: "0.01", kind: "crypto" });
   });
 
   test("Betrag in der Spalte tax wird als einbehaltene Steuer mitgeführt (negativ = einbehalten)", () => {

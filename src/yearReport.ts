@@ -328,7 +328,15 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
       },
     });
   }
-  events.sort((a, b) => a.at.localeCompare(b.at) || a.rank - b.rank).forEach((e) => e.apply());
+  // Offene Positionen am Ende des gewählten Jahres: Bestand vor der ersten Buchung nach dem 31.12. festhalten.
+  // Ohne spätere Buchungen gilt der Bestand am Ende der Daten.
+  const yearEnd = `${year}-12-31`;
+  let openAtYearEnd: YearReport["openPositions"] | null = null;
+  const openNow = () => positions.open().filter((p) => !broken.has(`${p.depot}|${p.isin}`));
+  for (const e of events.sort((a, b) => a.at.localeCompare(b.at) || a.rank - b.rank)) {
+    if (openAtYearEnd === null && e.at.slice(0, 10) > yearEnd) openAtYearEnd = openNow();
+    e.apply();
+  }
 
   // Abgleich mit dem Bestand laut Broker (IBKR OpenPositions): Abweichungen nie still übergehen.
   for (const p of data.reportedPositions) {
@@ -543,7 +551,14 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
     derivativesTreatment,
     tariffExtraTaxEur,
     otherIncomeEur: otherIncome,
-    openDerivatives: deriv.open,
+    // Offene Optionen und Futures ebenfalls am Jahresende: Gibt es spätere Derivat-Buchungen, nur bis zum 31.12. rechnen
+    openDerivatives: derivativeInputs.some((i) => i.trade.date > yearEnd)
+      ? runDerivatives(
+          derivativeInputs.filter((i) => i.trade.date <= yearEnd),
+          securityTrades.filter((t) => t.date <= yearEnd),
+          derivativesTreatment === "tariff",
+        ).open
+      : deriv.open,
     taxableBaseEur: basket.taxableBaseEur,
     unusedLossEur: basket.unusedLossEur,
     tax275Eur: basket.taxEur,
@@ -554,7 +569,7 @@ export function computeYear(input: ImportResult, year: number, options: YearOpti
     interest: interestLines,
     taxedByBroker,
     brokerWithheldEur: D.sum(ZERO, ...taxedByBroker.map((x) => x.withheldEur)),
-    openPositions: positions.open().filter((p) => !broken.has(`${p.depot}|${p.isin}`)),
+    openPositions: openAtYearEnd ?? openNow(),
     notComputed,
   };
 }

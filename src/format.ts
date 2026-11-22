@@ -60,7 +60,7 @@ export function formatReport(r: YearReport): string {
     line("KZ 863  Dividenden, Wertpapierzinsen", r.kz863),
     line("KZ 998  Anrechenbare Quellensteuer", r.kz998),
     line("KZ 861  Zinsen aus Geldeinlagen", r.kz861),
-    ...(r.brokerInterestEur.isZero() ? [] : [line(`  IBKR-Zinsen, Einstellung KZ ${r.brokerInterestKz}`, r.brokerInterestEur)]),
+    ...(r.brokerInterestEur.isZero() ? [] : [line(`  Broker-Zinsen, Einstellung KZ ${r.brokerInterestKz}`, r.brokerInterestEur)]),
     line("KZ 857  Optionen/Futures (Tarif)", r.kz857),
     ...(r.derivativesTreatment === "special" ? ["        Einstellung: Optionen/Futures mit 27,5 % in KZ 995/896"] : []),
     "",
